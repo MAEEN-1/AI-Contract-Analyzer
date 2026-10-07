@@ -4,12 +4,13 @@
 
 This document covers the PostgreSQL/Supabase layer of the AI Contract Analyzer. It does not describe frontend code, FastAPI logic, OpenAI calls, LangChain, RAG, PDF extraction, chunking, or embedding generation.
 
-Both migrations are applied to the Supabase project **MAEEN** (`qtgxldycxaghkvgsxbet`) and verified there:
+All migrations are applied to the Supabase project **MAEEN** (`qtgxldycxaghkvgsxbet`) and verified there:
 
 | Repo file | Applied in MAEEN as |
 |---|---|
 | `supabase/migrations/001_initial_schema.sql` | `20260924131618 initial_contract_analyzer_schema` + `20260924131709 add_chat_history_ownership_index` |
 | `supabase/migrations/002_harden_privileges_and_pdf_limit.sql` | `20261007113921 harden_privileges_and_pdf_limit` |
+| `supabase/migrations/003_pdf_limit_50mb.sql` | `20261007115739 pdf_limit_50mb` |
 
 Do not re-run these migrations on MAEEN. Any further change goes in a new numbered migration file and is applied once.
 
@@ -94,7 +95,7 @@ Stores user questions, AI answers, and source JSON. Ownership: **General Backend
 
 RLS is enabled on all four application tables. Authenticated users can select only their own rows: contracts by `contracts.user_id`, analyses and chunks through the owning contract, and chat records by `chat_history.user_id`. No authenticated write policies exist. Anonymous users have no access. The service role is the backend-only write path and bypasses RLS.
 
-Storage bucket `contract-pdfs` is private and has no authenticated object policies; trusted backend service-role operations are required. Uploads are capped at 20 MB per file (`file_size_limit = 20971520`). Source PDFs are not deleted by the database after processing.
+Storage bucket `contract-pdfs` is private and has no authenticated object policies; trusted backend service-role operations are required. Uploads are capped at 50 MB per file (`file_size_limit = 52428800`). Source PDFs are not deleted by the database after processing.
 
 ## Table privileges
 

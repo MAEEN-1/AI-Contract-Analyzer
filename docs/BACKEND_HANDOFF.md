@@ -33,8 +33,8 @@ All bodies are JSON. Validation errors return `422` with `{"detail": [{"loc", "m
 - The frontend talks only to this backend, never to Supabase directly.
 - Writes to `contracts`, `analysis_results` and `chat_history` need the **service_role** key (`SUPABASE_KEY`): `anon` has no table access and `authenticated` is read-only.
 - Because service_role bypasses RLS, every query must filter by the current `user.id` in code.
-- PDFs go to bucket `contract-pdfs` at `{user_id}/{contract_id}/{file_name}`, PDF only, max 20 MB; store the same path in `contracts.storage_path`.
-- Schema changes go in a new file `supabase/migrations/00N_<name>.sql`, applied once to MAEEN. Do not re-run `001` or `002`.
+- PDFs go to bucket `contract-pdfs` at `{user_id}/{contract_id}/{file_name}`, PDF only, max 50 MB; store the same path in `contracts.storage_path`.
+- Schema changes go in a new file `supabase/migrations/00N_<name>.sql`, applied once to MAEEN. Do not re-run `001`, `002` or `003`.
 
 ## Open items
 

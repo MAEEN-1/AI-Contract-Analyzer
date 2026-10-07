@@ -80,7 +80,7 @@ Uploaded PDF files are stored in a private Supabase Storage bucket:
 Bucket: contract-pdfs
 Public: false
 Allowed MIME type: application/pdf
-Max file size: 20 MB
+Max file size: 50 MB
 ```
 
 The documented object path is:
@@ -136,6 +136,7 @@ The database layer is kept separate from frontend and application logic. The rel
 ```text
 supabase/migrations/001_initial_schema.sql
 supabase/migrations/002_harden_privileges_and_pdf_limit.sql
+supabase/migrations/003_pdf_limit_50mb.sql
 supabase/tests/verify_schema.sql
 scripts/verify-migration.sh
 docs/DATABASE_SCHEMA.md
@@ -158,7 +159,7 @@ The following behaviors were tested in MAEEN using temporary Seed Data inside a 
 - The test transaction was rolled back.
 - No test users or test records remain in MAEEN.
 
-Migration `002` (2026-10-07) removed all table access from `anon`, made `authenticated` read-only (RLS still filters rows), and capped PDFs at 20 MB. `supabase/tests/verify_schema.sql` checks both.
+Migration `002` (2026-10-07) removed all table access from `anon`, made `authenticated` read-only (RLS still filters rows) and set a PDF size cap; migration `003` set that cap to 50 MB. `supabase/tests/verify_schema.sql` checks both.
 
 The Supabase Security Advisor reports no database lints. Its one remaining warning is an Auth setting: leaked password protection is off because it requires the Supabase Pro plan. Minimum password length is 8.
 

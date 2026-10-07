@@ -160,7 +160,7 @@ The following behaviors were tested in MAEEN using temporary Seed Data inside a 
 
 Migration `002` (2026-10-07) removed all table access from `anon`, made `authenticated` read-only (RLS still filters rows), and capped PDFs at 20 MB. `supabase/tests/verify_schema.sql` checks both.
 
-The Supabase Security Advisor reports no database lints. Its one remaining warning is an Auth setting: leaked password protection is off (Dashboard → Authentication → Attack Protection; may need a paid plan).
+The Supabase Security Advisor reports no database lints. Its one remaining warning is an Auth setting: leaked password protection is off because it requires the Supabase Pro plan. Minimum password length is 8.
 
 ### Integration notes
 

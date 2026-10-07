@@ -1,6 +1,6 @@
 # General Backend — Handoff
 
-State as of 2026-10-07, written for whoever continues the backend and connects the frontend.
+State as of 2026-10-07. Yasser continues the backend; Mahmoud connects the frontend.
 
 ## What exists
 
@@ -17,7 +17,7 @@ All bodies are JSON. Validation errors return `422` with `{"detail": [{"loc", "m
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET` | `/` | — | `200 {"message": "AI Contract Analyzer API"}` | — |
-| `POST` | `/api/auth/register` | `{"email", "password"}` | `200 {"message": ...}` (same reply whether or not the email already exists) | `422` weak password, `400`/`403`/`429` rejected by Supabase, `502`, `503` |
+| `POST` | `/api/auth/register` | `{"email", "password"}` | `200 {"message": ...}` (same reply whether or not the email already exists) | `422` weak password (minimum 8 characters), `400`/`403`/`429` rejected by Supabase, `502`, `503` |
 | `POST` | `/api/auth/login` | `{"email", "password"}` | `200 {"access_token", "token_type", "expires_in"}` | `401` wrong credentials, `403` email not confirmed, `429`, `502`, `503` |
 | `GET` | `/api/auth/me` | header `Authorization: Bearer <access_token>` | `200 {"id", "email"}` | `401` missing/invalid/expired token, `502`, `503` |
 
@@ -39,6 +39,6 @@ All bodies are JSON. Validation errors return `422` with `{"detail": [{"loc", "m
 ## Open items
 
 1. **Session length.** `login` returns no `refresh_token`, so users are signed out when `access_token` expires (`expires_in`, about 1 hour by default). Add a refresh endpoint if longer sessions are needed.
-2. **Leaked password protection** is off in Supabase Auth (Dashboard → Authentication → Attack Protection; may need a paid plan). It is the only Security Advisor warning.
+2. **Leaked password protection** is off: Supabase offers it only on the Pro plan (Authentication → Providers → Email). It is the only Security Advisor warning. Minimum password length was raised from 6 to 8 instead. Captcha is off on purpose: turning it on makes Supabase reject every sign-up and login until the frontend sends an hCaptcha token through the backend.
 3. **Embedding size.** `document_chunks.embedding` is `vector(1536)`; confirm the real model and dimension with the AI Backend before inserting embeddings.
 4. **Rate limiting.** Supabase rate-limits Auth per client IP, and every request comes from the backend's IP. Under real traffic, consider rate limiting in the backend itself.

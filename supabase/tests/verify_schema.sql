@@ -32,8 +32,8 @@ begin
     raise exception 'contract-pdfs bucket is not private or does not allow application/pdf';
   end if;
 
-  if not exists (select 1 from storage.buckets where id = 'contract-pdfs' and file_size_limit = 20971520) then
-    raise exception 'contract-pdfs bucket is missing its 20 MB file size limit';
+  if not exists (select 1 from storage.buckets where id = 'contract-pdfs' and file_size_limit = 52428800) then
+    raise exception 'contract-pdfs bucket is missing its 50 MB file size limit (003)';
   end if;
 
   -- 002: anon has no table access; authenticated is read-only (RLS filters rows).

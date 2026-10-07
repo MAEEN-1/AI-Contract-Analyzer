@@ -216,3 +216,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# ============================================================
+# Supabase / Database project files
+# ============================================================
+# Keep credentials and local Supabase state out of Git.
+.env.local
+.env.*.local
+supabase/.env
+supabase/.temp/
+supabase/.branches/
+.supabase/
+
+# Do NOT ignore these database artifacts:
+# supabase/migrations/
+# supabase/tests/
+# docs/DATABASE_SCHEMA.md

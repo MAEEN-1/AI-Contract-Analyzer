@@ -1,11 +1,13 @@
 from fastapi import FastAPI, Request
 from routers.F_accounts import router
+from routers.Y_contracts import router as contracts_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import os
 app = FastAPI()
 app.include_router(router)
+app.include_router(contracts_router)
 
 frontend_url = os.getenv("FRONTEND_URL")
 
@@ -13,7 +15,7 @@ if frontend_url:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[frontend_url.strip().rstrip("/")],
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
     )
 

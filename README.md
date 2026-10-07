@@ -3,7 +3,7 @@ AI-powered platform for contract analysis and RAG-based contract Q&amp;A.
 
 ## General Backend (FastAPI)
 
-The backend lives in `backend/` and currently provides authentication on top of Supabase Auth. Endpoints, the auth flow for the frontend, and open items are in [docs/BACKEND_HANDOFF.md](docs/BACKEND_HANDOFF.md).
+The backend lives in `backend/` and currently provides authentication on top of Supabase Auth, plus contract upload, list, view and delete. Endpoints, the auth flow for the frontend, and open items are in [docs/BACKEND_HANDOFF.md](docs/BACKEND_HANDOFF.md).
 
 Run it locally (Python 3.10+, tested on 3.14):
 
@@ -15,6 +15,14 @@ python -m uvicorn main:app --reload
 ```
 
 The API is then on `http://127.0.0.1:8000`, with interactive docs at `/docs`.
+
+Run the tests (they use a fake Supabase and never touch MAEEN):
+
+```bash
+cd backend
+python -m pip install -r requirements-dev.txt
+python -m pytest
+```
 
 ## Supabase Database — MAEEN
 

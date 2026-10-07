@@ -50,7 +50,7 @@ Stores metadata for an uploaded PDF. Ownership: **General Backend**.
 | `created_at` | `timestamptz` | NOT NULL | `now()` | — |
 | `updated_at` | `timestamptz` | NOT NULL | `now()` | Maintained by trigger |
 
-Storage convention: `{user_id}/{contract_id}/{file_name}`. The General Backend must write exactly this object path to both Storage and `contracts.storage_path`.
+Storage convention: `{user_id}/{contract_id}/{file_name}`. The General Backend must write exactly this object path to both Storage and `contracts.storage_path`. The General Backend uses the fixed object name `contract.pdf` for the last segment, because Storage keys reject Arabic letters and some symbols; the uploaded name is kept in `contracts.file_name`.
 
 ### `analysis_results`
 

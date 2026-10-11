@@ -24,6 +24,17 @@ python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+## Frontend
+
+The frontend lives in `frontend/` (plain HTML, CSS and JavaScript, no build step). It opens in English, with an Arabic switch, and calls the General Backend for sign-up, sign-in, and contract upload, list, view and delete. Analysis results and inquiries are not connected yet.
+
+Run it next to the backend:
+
+1. In `backend/.env`, set `FRONTEND_URL` to the exact address the frontend will use, for example `http://localhost:3000`.
+2. Serve the folder: `npx serve frontend -l 3000`, then open `http://localhost:3000`.
+
+The backend address is `API_URL` at the top of `frontend/app.js` (default `http://127.0.0.1:8000`). Design decisions, the approved copy and how each page uses the API are in [docs/FRONTEND_DESIGN.md](docs/FRONTEND_DESIGN.md).
+
 ## Supabase Database — MAEEN
 
 The project uses Supabase as the database, authentication, private PDF storage, and vector-search infrastructure for the AI Contract Analyzer.

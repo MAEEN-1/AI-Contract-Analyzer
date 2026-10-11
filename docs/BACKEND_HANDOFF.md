@@ -1,6 +1,6 @@
 # General Backend — Handoff
 
-State as of 2026-10-07. Yasser continues the backend; Mahmoud connects the frontend.
+State as of 2026-10-11. Yasser continues the backend. The frontend in `frontend/` is connected to every endpoint below; how each page uses them is in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md#الربط-بالباك-اند).
 
 ## What exists
 

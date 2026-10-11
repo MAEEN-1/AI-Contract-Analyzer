@@ -5,8 +5,9 @@ State as of 2026-10-11. Yasser continues the backend. The frontend in `frontend/
 ## What exists
 
 - FastAPI app in `backend/` with authentication (Supabase Auth, project **MAEEN**, `qtgxldycxaghkvgsxbet`) and contract upload, list, view and delete.
+- The MAEEN Assistant: a general chat assistant on OpenAI for signed-in users (see [MAEEN Assistant](#maeen-assistant)).
 - Database schema, RLS, private PDF bucket and pgvector are applied on MAEEN. See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md).
-- No analysis or chat endpoints yet.
+- No contract analysis or per-contract chat endpoints yet; those come from the AI Backend.
 
 Setup and run steps are in the root [README](../README.md#general-backend-fastapi). Environment variables are listed in `backend/.env.example`.
 
@@ -24,6 +25,7 @@ All bodies are JSON, except the contract upload, which is `multipart/form-data`.
 | `GET` | `/api/contracts` | — | `200 [contract, ...]`, the user's own, newest first | `401`, `502`, `503` |
 | `GET` | `/api/contracts/{id}` | — | `200` contract | `404` not found or not the user's, `422` id is not a UUID, `401`, `502`, `503` |
 | `DELETE` | `/api/contracts/{id}` | — | `204`, no body; the PDF, analyses, chunks and chat go with it | `404`, `422`, `401`, `502`, `503` |
+| `POST` | `/api/assistant/chat` | `{"messages": [{"role", "content"}, ...]}` | `200 {"reply"}` | `422` invalid conversation, `429` over 20 questions in 10 minutes (with `Retry-After`), `401`, `502`, `503` |
 
 All `/api/contracts` endpoints need `Authorization: Bearer <access_token>`. A contract is:
 
@@ -44,6 +46,18 @@ await fetch(`${API}/api/contracts`, {
   body: form,
 });
 ```
+
+## MAEEN Assistant
+
+The round button in the corner of every signed-in page opens a chat with the MAEEN Assistant. It explains how MAEEN works and answers general questions about contracts. It does not read the user's contracts; per-contract answers are the AI Backend's `/chat/{contract_id}`.
+
+- Code: `routers/F_assistant.py`, `services/F_assistant_service.py`, `models/F_assistant_data.py`, tests in `tests/test_assistant.py`.
+- Settings in `backend/.env`: `OPENAI_API_KEY` and `CHAT_MODEL`, the same names the AI Backend uses. If either is empty, the endpoint answers `503` and never calls OpenAI.
+- Request: `messages` is the conversation, oldest first, 1 to 20 messages. `role` is `user` or `assistant`, and the last message must be from the user. A user message is at most 2,000 characters; an assistant message at most 8,000.
+- Only the latest 12 messages go to OpenAI, through the Responses API with `store=False` (OpenAI does not keep the conversation) and a hashed `safety_identifier` (never the real user id). Replies are capped at 1,200 output tokens.
+- The assistant's instructions are `INSTRUCTIONS` in `services/F_assistant_service.py`: it replies in the user's language, in formal Arabic or English, stays on MAEEN and contracts, says it cannot see the user's contracts, gives general information rather than legal advice, and never invents legal citations.
+- Limit: 20 questions per user per 10 minutes, kept in memory. It resets when the server restarts and is per process; move it to a shared store if the backend runs on several processes.
+- Errors: OpenAI unreachable, overloaded, or rejecting the key or model gives `503`; any other OpenAI failure or an empty reply gives `502`. The cause is logged under `maeen.assistant`, without the conversation text.
 
 ## Auth flow for the frontend
 
@@ -67,4 +81,4 @@ await fetch(`${API}/api/contracts`, {
 2. **Leaked password protection** is off: Supabase offers it only on the Pro plan (Authentication → Providers → Email). It is the only Security Advisor warning. Minimum password length was raised from 6 to 8 instead. Captcha is off on purpose: turning it on makes Supabase reject every sign-up and login until the frontend sends an hCaptcha token through the backend.
 3. **Embedding size.** `document_chunks.embedding` is `vector(1536)`; confirm the real model and dimension with the AI Backend before inserting embeddings.
 4. **Rate limiting.** Supabase rate-limits Auth per client IP, and every request comes from the backend's IP. Under real traffic, consider rate limiting in the backend itself.
-5. **Tests.** `backend/tests/` covers the contract endpoints against a fake Supabase, so it never touches MAEEN. Run it with `cd backend && python -m pip install -r requirements-dev.txt && python -m pytest`. The auth endpoints have no tests yet.
+5. **Tests.** `backend/tests/` covers the contract endpoints against a fake Supabase and the assistant against a fake OpenAI client, so it never touches MAEEN or OpenAI. Run it with `cd backend && python -m pip install -r requirements-dev.txt && python -m pytest`. The auth endpoints have no tests yet.

@@ -35,6 +35,8 @@
   // The General Backend address. Change it here when the backend runs somewhere else.
   var API_URL = "http://127.0.0.1:8000";
   var SESSION_KEY = "maeen-session";
+  // The assistant conversation lasts for this browser tab only.
+  var ASSISTANT_KEY = "maeen-assistant";
   var scriptRoot = new URL(".", document.querySelector('script[src$="app.js"]').src);
 
   // When the site is opened from files (file://), each link must point to the page's index.html.
@@ -65,6 +67,7 @@
   }
   function clearSession() {
     try { localStorage.removeItem(SESSION_KEY); } catch (error) { /* Nothing was saved. */ }
+    try { sessionStorage.removeItem(ASSISTANT_KEY); } catch (error) { /* Nothing was saved. */ }
   }
   var session = readSession();
 
@@ -99,7 +102,11 @@
       star: '<path d="m12 2.8 2.7 5.6 6.2.9-4.5 4.4 1.1 6.2L12 17l-5.5 2.9 1.1-6.2-4.5-4.4 6.2-.9z"/>',
       menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
       moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
-      sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+      sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+      sparkle: '<path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+      refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
+      close: '<path d="M6 6l12 12M18 6 6 18"/>',
+      send: '<path d="M12 19V5m-6 6 6-6 6 6"/>'
     };
     return '<svg class="ui-icon icon-' + name + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths[name] + '</svg>';
   }
@@ -252,7 +259,29 @@
       "<header class='topbar'><div class='topbar-start'><button class='icon-button mobile-menu-button' type='button' aria-label='", t("Open main menu", "فتح القائمة الرئيسية"), "' aria-controls='sidebar' aria-expanded='false' data-menu-toggle>", icon("menu"), "</button><span class='topbar-title'>", title, "</span></div>",
       "<div class='topbar-actions'>", langToggle(), themeToggle(), "</div></header>",
       "<div class='content'>", content, "</div>",
-      "</main></div>"
+      "</main></div>",
+      assistant()
+    ].join("");
+  }
+
+  // The MAEEN Assistant: a round button in the bottom corner that opens a chat window.
+  function assistant() {
+    return [
+      "<button class='assistant-fab' type='button' id='assistant-fab' aria-controls='assistant-panel' aria-expanded='false' aria-label='", t("Open MAEEN Assistant", "فتح مساعد معين"), "' title='", t("MAEEN Assistant", "مساعد معين"), "'>", icon("sparkle"), "</button>",
+      "<section class='assistant-panel' id='assistant-panel' role='dialog' aria-modal='false' aria-labelledby='assistant-title' hidden>",
+      "<header class='assistant-head'><h2 id='assistant-title'>", icon("sparkle"), "<span>", t("MAEEN Assistant", "مساعد معين"), "</span></h2>",
+      "<div class='assistant-head-actions'>",
+      "<button class='icon-button' type='button' data-assistant-new aria-label='", t("New conversation", "محادثة جديدة"), "' title='", t("New conversation", "محادثة جديدة"), "'>", icon("refresh"), "</button>",
+      "<button class='icon-button' type='button' data-assistant-close aria-label='", t("Close assistant", "إغلاق المساعد"), "' title='", t("Close", "إغلاق"), "'>", icon("close"), "</button>",
+      "</div></header>",
+      "<div class='assistant-log' id='assistant-log' role='log' aria-live='polite' aria-label='", t("Conversation", "المحادثة"), "'></div>",
+      "<form class='assistant-compose' id='assistant-form'>",
+      "<label class='sr-only' for='assistant-input'>", t("Type your question", "اكتب سؤالك"), "</label>",
+      "<textarea class='input' id='assistant-input' rows='1' maxlength='2000' dir='auto' placeholder='", t("Type your question", "اكتب سؤالك"), "'></textarea>",
+      "<button class='button button-primary assistant-send' type='submit' aria-label='", t("Send", "إرسال"), "' title='", t("Send", "إرسال"), "'>", icon("send"), "</button>",
+      "</form>",
+      "<p class='assistant-note'>", t("General information only; it does not constitute legal advice.", "معلومات عامة فقط، ولا تُعد استشارة قانونية."), "</p>",
+      "</section>"
     ].join("");
   }
 
@@ -542,7 +571,7 @@
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       xhr.open(method, API_URL + apiPath);
-      xhr.timeout = options.body instanceof FormData ? 0 : 30000;
+      xhr.timeout = options.timeout || (options.body instanceof FormData ? 0 : 30000);
       if (session) xhr.setRequestHeader("Authorization", "Bearer " + session.token);
       var body = options.body || null;
       if (options.json) {
@@ -1040,5 +1069,268 @@
     }).catch(function (error) {
       if (!error.redirected) showToast(errorMessage(error));
     });
+  }
+
+  // ---------- MAEEN Assistant ----------
+  var assistantFab = document.getElementById("assistant-fab");
+  if (assistantFab) {
+    var assistantPanel = document.getElementById("assistant-panel");
+    var assistantLog = document.getElementById("assistant-log");
+    var assistantForm = document.getElementById("assistant-form");
+    var assistantInput = document.getElementById("assistant-input");
+    var assistantSend = assistantForm.querySelector(".assistant-send");
+    var wideScreen = window.matchMedia("(min-width: 801px)");
+    // The backend reads the latest 12 messages; the tab keeps up to 40.
+    var ASSISTANT_SENT = 12;
+    var ASSISTANT_KEPT = 40;
+    var assistantState = { messages: [], open: false };
+    var assistantBusy = false;
+    var typingBubble = null;
+    var errorBubble = null;
+
+    try {
+      var savedChat = JSON.parse(sessionStorage.getItem(ASSISTANT_KEY) || "null");
+      if (savedChat && Array.isArray(savedChat.messages)) {
+        assistantState.messages = savedChat.messages.filter(function (message) {
+          return message && (message.role === "user" || message.role === "assistant") && typeof message.content === "string" && message.content.trim();
+        });
+        assistantState.open = savedChat.open === true;
+      }
+    } catch (error) { /* Start with an empty conversation. */ }
+
+    function saveAssistant() {
+      assistantState.messages = assistantState.messages.slice(-ASSISTANT_KEPT);
+      try { sessionStorage.setItem(ASSISTANT_KEY, JSON.stringify(assistantState)); } catch (error) { /* The conversation lasts for this page only. */ }
+    }
+
+    // Replies become paragraphs, lists and bold words. The reply is never inserted as HTML.
+    function addInline(parent, text) {
+      text.split(/\*\*(.+?)\*\*/).forEach(function (part, index) {
+        if (!part) return;
+        if (index % 2) {
+          var strong = document.createElement("strong");
+          strong.textContent = part;
+          parent.appendChild(strong);
+        } else {
+          parent.appendChild(document.createTextNode(part));
+        }
+      });
+    }
+    function formatReply(text) {
+      var fragment = document.createDocumentFragment();
+      var list = null;
+      var paragraph = null;
+      text.split(/\r?\n/).forEach(function (rawLine) {
+        var line = rawLine.trim();
+        if (!line) { list = null; paragraph = null; return; }
+        var bullet = line.match(/^[-*•]\s+(.*)$/);
+        var numbered = line.match(/^(\d+)[.)]\s+(.*)$/);
+        if (bullet || numbered) {
+          var tag = bullet ? "ul" : "ol";
+          if (!list || list.tagName.toLowerCase() !== tag) {
+            list = document.createElement(tag);
+            if (numbered) list.start = parseInt(numbered[1], 10);
+            fragment.appendChild(list);
+          }
+          var item = document.createElement("li");
+          addInline(item, bullet ? bullet[1] : numbered[2]);
+          list.appendChild(item);
+          paragraph = null;
+          return;
+        }
+        list = null;
+        line = line.replace(/^#{1,6}\s+/, "");
+        if (paragraph) {
+          paragraph.appendChild(document.createElement("br"));
+        } else {
+          paragraph = document.createElement("p");
+          fragment.appendChild(paragraph);
+        }
+        addInline(paragraph, line);
+      });
+      return fragment;
+    }
+
+    function scrollAssistant() {
+      assistantLog.scrollTop = assistantLog.scrollHeight;
+    }
+    function addBubble(role, content) {
+      var bubble = document.createElement("div");
+      bubble.className = "bubble bubble-" + role;
+      bubble.setAttribute("dir", "auto");
+      if (role === "assistant") bubble.appendChild(formatReply(content));
+      else bubble.textContent = content;
+      assistantLog.appendChild(bubble);
+      scrollAssistant();
+    }
+    function addWelcome(withSuggestions) {
+      var welcome = document.createElement("div");
+      welcome.className = "assistant-welcome";
+      var greeting = document.createElement("div");
+      greeting.className = "bubble bubble-assistant";
+      greeting.textContent = t("Hello. I'm the MAEEN Assistant. I can explain how the platform works and answer general questions about contracts. How can I help you?", "مرحبًا، أنا مساعد معين. أستطيع شرح طريقة استخدام المنصة والإجابة عن الأسئلة العامة المتعلقة بالعقود. كيف أستطيع مساعدتك؟");
+      welcome.appendChild(greeting);
+      if (withSuggestions) {
+        var group = document.createElement("div");
+        group.className = "assistant-suggestions";
+        group.setAttribute("role", "group");
+        group.setAttribute("aria-label", t("Suggested questions", "أسئلة مقترحة"));
+        [
+          t("How do I upload a contract?", "كيف أرفع عقدًا؟"),
+          t("What does a termination clause mean?", "ما المقصود ببند الإنهاء؟"),
+          t("What should I check before signing a lease?", "ما الذي أراجعه قبل توقيع عقد إيجار؟")
+        ].forEach(function (question) {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "assistant-suggestion";
+          button.textContent = question;
+          button.addEventListener("click", function () { sendQuestion(question); });
+          group.appendChild(button);
+        });
+        welcome.appendChild(group);
+      }
+      assistantLog.appendChild(welcome);
+    }
+
+    function showTyping() {
+      typingBubble = document.createElement("div");
+      typingBubble.className = "bubble bubble-assistant assistant-typing";
+      typingBubble.innerHTML = "<span class='sr-only'>" + t("MAEEN Assistant is typing", "مساعد معين يكتب") + "</span><i></i><i></i><i></i>";
+      assistantLog.appendChild(typingBubble);
+      scrollAssistant();
+    }
+    function hideTyping() {
+      if (typingBubble) typingBubble.remove();
+      typingBubble = null;
+    }
+    function clearAssistantError() {
+      if (errorBubble) errorBubble.remove();
+      errorBubble = null;
+    }
+    function showAssistantError(message) {
+      clearAssistantError();
+      errorBubble = document.createElement("div");
+      errorBubble.className = "bubble bubble-error";
+      var text = document.createElement("span");
+      text.textContent = message;
+      var retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "button-link";
+      retry.textContent = t("Try again", "إعادة المحاولة");
+      retry.addEventListener("click", function () {
+        clearAssistantError();
+        askAssistant();
+      });
+      errorBubble.appendChild(text);
+      errorBubble.appendChild(retry);
+      assistantLog.appendChild(errorBubble);
+      scrollAssistant();
+    }
+
+    function renderConversation() {
+      assistantLog.textContent = "";
+      typingBubble = null;
+      errorBubble = null;
+      addWelcome(assistantState.messages.length === 0);
+      assistantState.messages.forEach(function (message) { addBubble(message.role, message.content); });
+      // A question without a reply means the last request did not finish, for example after leaving the page.
+      var last = assistantState.messages[assistantState.messages.length - 1];
+      if (last && last.role === "user") showAssistantError(t("Sorry, the reply could not be completed.", "عذرًا، تعذّر إكمال الرد."));
+    }
+
+    function setAssistantBusy(busy) {
+      assistantBusy = busy;
+      assistantSend.disabled = busy;
+      assistantForm.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+    function askAssistant() {
+      if (assistantBusy) return;
+      setAssistantBusy(true);
+      showTyping();
+      var recent = assistantState.messages.slice(-ASSISTANT_SENT).map(function (message) {
+        return { role: message.role, content: message.content.slice(0, 8000) };
+      });
+      request("POST", "/api/assistant/chat", { json: { messages: recent }, timeout: 60000 }).then(function (data) {
+        var reply = data && typeof data.reply === "string" ? data.reply.trim() : "";
+        if (!reply) {
+          var empty = new Error("Empty reply");
+          empty.status = 502;
+          throw empty;
+        }
+        hideTyping();
+        assistantState.messages.push({ role: "assistant", content: reply });
+        saveAssistant();
+        addBubble("assistant", reply);
+      }).catch(function (error) {
+        hideTyping();
+        if (!error.redirected) showAssistantError(errorMessage(error));
+      }).then(function () {
+        setAssistantBusy(false);
+      });
+    }
+    function sendQuestion(text) {
+      var question = text.trim().slice(0, 2000);
+      if (!question || assistantBusy) return;
+      clearAssistantError();
+      var suggestions = assistantLog.querySelector(".assistant-suggestions");
+      if (suggestions) suggestions.remove();
+      assistantState.messages.push({ role: "user", content: question });
+      saveAssistant();
+      addBubble("user", question);
+      assistantInput.value = "";
+      askAssistant();
+    }
+
+    function openAssistant(focusInput) {
+      assistantPanel.hidden = false;
+      assistantFab.setAttribute("aria-expanded", "true");
+      assistantFab.setAttribute("aria-label", t("Close MAEEN Assistant", "إغلاق مساعد معين"));
+      document.body.classList.add("assistant-open");
+      assistantState.open = true;
+      saveAssistant();
+      scrollAssistant();
+      if (focusInput) assistantInput.focus();
+    }
+    function closeAssistant(returnFocus) {
+      assistantPanel.hidden = true;
+      assistantFab.setAttribute("aria-expanded", "false");
+      assistantFab.setAttribute("aria-label", t("Open MAEEN Assistant", "فتح مساعد معين"));
+      document.body.classList.remove("assistant-open");
+      assistantState.open = false;
+      saveAssistant();
+      if (returnFocus) assistantFab.focus();
+    }
+
+    assistantFab.addEventListener("click", function () {
+      if (assistantPanel.hidden) openAssistant(true);
+      else closeAssistant(true);
+    });
+    assistantPanel.querySelector("[data-assistant-close]").addEventListener("click", function () { closeAssistant(true); });
+    assistantPanel.querySelector("[data-assistant-new]").addEventListener("click", function () {
+      if (assistantBusy) return;
+      assistantState.messages = [];
+      saveAssistant();
+      renderConversation();
+      assistantInput.focus();
+    });
+    assistantPanel.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      closeAssistant(true);
+    });
+    assistantForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      sendQuestion(assistantInput.value);
+    });
+    // Enter sends; Shift+Enter starts a new line.
+    assistantInput.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      sendQuestion(assistantInput.value);
+    });
+
+    renderConversation();
+    // Moving between pages keeps the window open on wide screens; on phones it covers the page, so it starts closed.
+    if (assistantState.open && wideScreen.matches) openAssistant(false);
   }
 })();

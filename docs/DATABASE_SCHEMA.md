@@ -2,9 +2,9 @@
 
 ## Scope and implementation status
 
-This repository contains **only** the PostgreSQL/Supabase infrastructure for the AI Contract Analyzer. It does not implement frontend code, FastAPI logic, authentication flows, OpenAI calls, LangChain, RAG, PDF extraction, chunking, or embedding generation.
+This document covers the PostgreSQL/Supabase layer. The repository also contains AI processing code in `ai_backend/`. The user-facing General Backend and frontend are not yet implemented in this checkout.
 
-The migration is implemented locally in this repository. It is **not claimed as deployed to a Supabase cloud project** because no project connection or cloud verification was available during implementation.
+The migration and schema verification files are in this repository. The README records the team's prior cloud verification. A later manual AI integration test downloaded a PDF from the private bucket and stored and retrieved its vector chunks. Re-run the schema verification before release.
 
 ## Authentication and security boundary
 
@@ -93,7 +93,7 @@ Storage bucket `contract-pdfs` is private and has no authenticated object polici
 
 The migration enables `vector` in the `extensions` schema and declares `embedding` as `extensions.vector(1536)`. It uses cosine distance (`<=>`) and an HNSW index with `m = 16` and `ef_construction = 64`, using `extensions.vector_cosine_ops`.
 
-**Compatibility assumption:** the available repositories contain no AI Backend, embedding model name, or existing vector schema. Therefore the migration uses **1536 dimensions**, compatible with the commonly used OpenAI `text-embedding-3-small` model, as a provisional assumption. Before production deployment, the AI Backend owner must confirm both the exact model and output dimension. If they differ, change the vector dimension and HNSW index in a new migration before inserting embeddings; a vector dimension mismatch will reject writes.
+**Current compatibility:** the AI Backend defaults to OpenAI `text-embedding-3-small` and validates that every vector has **1536 dimensions** before insertion. If the configured model produces a different dimension, coordinate a new migration for the vector column and HNSW index before ingestion; do not silently change the production schema.
 
 ## Indexes
 

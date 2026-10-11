@@ -1,6 +1,10 @@
 # AI-Contract-Analyzer
 AI-powered platform for contract analysis and RAG-based contract Q&amp;A.
 
+## Current repository status
+
+The Supabase schema is present under `supabase/`. The AI implementation is under `ai_backend/`; see [its README](ai_backend/README.md) for local testing and integration contracts. `backend/main.py` currently provides only a basic FastAPI root route, and `frontend/` is a placeholder in this checkout. The user-facing upload, status, analysis, and chat routes still need to be integrated before the product can be used from a browser.
+
 ## Supabase Database — MAEEN
 
 The project uses Supabase as the database, authentication, private PDF storage, and vector-search infrastructure for the AI Contract Analyzer.
@@ -100,7 +104,7 @@ m: 16
 ef_construction: 64
 ```
 
-The `1536` dimension is a provisional compatibility assumption because the AI Backend repository and its embedding configuration were not available during database implementation. It is compatible with commonly used models such as OpenAI `text-embedding-3-small`. Before production ingestion, confirm the exact AI Backend model and output dimension. If the actual dimension differs, update the vector column and index in a new migration before inserting embeddings.
+The AI Backend defaults to OpenAI `text-embedding-3-small` and validates that generated embeddings have `1536` dimensions before insertion. If a different model requires another dimension, coordinate a database migration before ingestion.
 
 ### Timestamps and indexes
 
@@ -145,7 +149,7 @@ The Supabase Security Advisor returned no security lints after deployment.
 
 ### Integration notes
 
-The current frontend repository contains UI code and mock API behavior, but no complete General Backend or AI Backend implementation was available for direct contract comparison. Before production integration, confirm the following with the backend teams:
+Before production integration, confirm the following across the frontend, General Backend, and AI Backend:
 
 1. The exact embedding model and vector dimension.
 2. The exact Storage bucket and object path used by General Backend.

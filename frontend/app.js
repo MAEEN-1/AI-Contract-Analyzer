@@ -5,6 +5,18 @@
   try { savedTheme = localStorage.getItem("maeen-theme") || "light"; } catch (error) { /* Private browsing may block storage. */ }
   document.documentElement.dataset.theme = savedTheme === "dark" ? "dark" : "light";
 
+  // English is the default language; Arabic is the second language.
+  var savedLang = "en";
+  try { savedLang = localStorage.getItem("maeen-lang") || "en"; } catch (error) { /* Private browsing may block storage. */ }
+  var lang = savedLang === "ar" ? "ar" : "en";
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+
+  // Every text on the site is written twice: English first, then Arabic.
+  function t(en, ar) {
+    return lang === "ar" ? ar : en;
+  }
+
   var app = document.getElementById("app");
   var path = window.location.pathname.replace(/\/+$/, "") || "/";
   var routes = {
@@ -21,8 +33,8 @@
   var page = document.body.getAttribute("data-maeen-page") || routes[path] || "landing";
   document.body.classList.add("page-" + page);
 
-  var UNAVAILABLE = "عذرًا، هذه الخدمة غير متاحة حاليًا.";
-  var DISCLAIMER = "تستند الإجابات إلى نص العقد فقط، ولا تُعد استشارة قانونية.";
+  var UNAVAILABLE = t("Sorry, this service is currently unavailable.", "عذرًا، هذه الخدمة غير متاحة حاليًا.");
+  var DISCLAIMER = t("Answers are based solely on the contract text and do not constitute legal advice.", "تستند الإجابات إلى نص العقد فقط، ولا تُعد استشارة قانونية.");
   var MAX_PDF_BYTES = 50 * 1024 * 1024;
 
   function icon(name) {
@@ -47,19 +59,24 @@
 
   function brand() {
     return [
-      "<a class='wordmark' href='/' aria-label='منصة معين، الصفحة الرئيسية'>",
+      "<a class='wordmark' href='/' aria-label='", t("MAEEN, home page", "منصة معين، الصفحة الرئيسية"), "'>",
       "<span class='mark' aria-hidden='true'><svg viewBox='0 0 64 64' fill='none' stroke='currentColor' stroke-width='6' stroke-linecap='round'><path d='M18 39c10-17 16-21 26-17M18 39c12-1 22-3 28-10M18 39l12 9'/></svg></span>",
-      "<span>معين<small>MAEEN</small></span>",
+      t("<span>MAEEN<small lang='ar'>معين</small></span>", "<span>معين<small lang='en'>MAEEN</small></span>"),
       "</a>"
     ].join("");
   }
 
   function themeToggle() {
-    return "<button class='icon-button theme-toggle' type='button' data-theme-toggle title='تبديل المظهر' aria-label='تبديل المظهر' aria-pressed='false'>" + icon("moon") + icon("sun") + "</button>";
+    return "<button class='icon-button theme-toggle' type='button' data-theme-toggle title='" + t("Toggle theme", "تبديل المظهر") + "' aria-label='" + t("Toggle theme", "تبديل المظهر") + "' aria-pressed='false'>" + icon("moon") + icon("sun") + "</button>";
+  }
+
+  // The button shows the other language, written in that language.
+  function langToggle() {
+    return "<button class='lang-toggle' type='button' data-lang-toggle>" + t("<span lang='ar'>العربية</span>", "<span lang='en'>English</span>") + "</button>";
   }
 
   function skipLink() {
-    return "<a class='skip-link' href='#main-content'>تجاوز إلى المحتوى الرئيسي</a>";
+    return "<a class='skip-link' href='#main-content'>" + t("Skip to main content", "تجاوز إلى المحتوى الرئيسي") + "</a>";
   }
 
   function navLink(href, label, active) {
@@ -75,20 +92,21 @@
     return [
       skipLink(),
       "<div class='app'>",
-      "<aside class='sidebar' id='sidebar' aria-label='القائمة الرئيسية'>",
+      "<aside class='sidebar' id='sidebar' aria-label='", t("Main menu", "القائمة الرئيسية"), "'>",
       brand(),
-      "<nav class='sidebar-nav' aria-label='التنقل الرئيسي'>",
-      navLink("/dashboard/", "الرئيسية", current === "dashboard"),
-      navLink("/contracts/", "العقود", current === "contracts" || current === "details"),
-      navLink("/ask/", "الاستفسارات", current === "ask"),
-      navLink("/upload/", "رفع عقد", current === "upload"),
-      navLink("/account/", "الحساب", current === "account"),
+      "<nav class='sidebar-nav' aria-label='", t("Main navigation", "التنقل الرئيسي"), "'>",
+      navLink("/dashboard/", t("Home", "الرئيسية"), current === "dashboard"),
+      navLink("/contracts/", t("Contracts", "العقود"), current === "contracts" || current === "details"),
+      navLink("/ask/", t("Inquiries", "الاستفسارات"), current === "ask"),
+      navLink("/upload/", t("Upload contract", "رفع عقد"), current === "upload"),
+      navLink("/account/", t("Account", "الحساب"), current === "account"),
       "</nav>",
-      "<div class='sidebar-footer'><button class='nav-button' type='button' data-unavailable>", icon("logout"), "<span>تسجيل الخروج</span></button></div>",
+      "<div class='sidebar-footer'><button class='nav-button' type='button' data-unavailable>", icon("logout"), "<span>", t("Sign out", "تسجيل الخروج"), "</span></button></div>",
       "</aside>",
-      "<button class='sidebar-backdrop' type='button' aria-label='إغلاق القائمة' data-menu-close></button>",
+      "<button class='sidebar-backdrop' type='button' aria-label='", t("Close menu", "إغلاق القائمة"), "' data-menu-close></button>",
       "<main class='main' id='main-content' tabindex='-1'>",
-      "<header class='topbar'><div class='topbar-start'><button class='icon-button mobile-menu-button' type='button' aria-label='فتح القائمة الرئيسية' aria-controls='sidebar' aria-expanded='false' data-menu-toggle>", icon("menu"), "</button><span class='topbar-title'>", title, "</span></div>", themeToggle(), "</header>",
+      "<header class='topbar'><div class='topbar-start'><button class='icon-button mobile-menu-button' type='button' aria-label='", t("Open main menu", "فتح القائمة الرئيسية"), "' aria-controls='sidebar' aria-expanded='false' data-menu-toggle>", icon("menu"), "</button><span class='topbar-title'>", title, "</span></div>",
+      "<div class='topbar-actions'>", langToggle(), themeToggle(), "</div></header>",
       "<div class='content'>", content, "</div>",
       "</main></div>"
     ].join("");
@@ -105,41 +123,41 @@
       skipLink(),
       "<header class='site-top on-dark'><div class='wrap site-header'>",
       brand(),
-      "<nav class='site-nav' aria-label='أقسام الصفحة'><a href='#services'>الخدمات</a><a href='#how'>آلية العمل</a></nav>",
-      "<div class='header-actions'>", themeToggle(), "<a class='header-signin' href='/signin/'>تسجيل الدخول</a><a class='button button-light' href='/signup/'>إنشاء حساب جديد</a></div>",
+      "<nav class='site-nav' aria-label='", t("Page sections", "أقسام الصفحة"), "'><a href='#services'>", t("Services", "الخدمات"), "</a><a href='#how'>", t("How it works", "آلية العمل"), "</a></nav>",
+      "<div class='header-actions'>", langToggle(), themeToggle(), "<a class='header-signin' href='/signin/'>", t("Sign in", "تسجيل الدخول"), "</a><a class='button button-light' href='/signup/'>", t("Create account", "إنشاء حساب جديد"), "</a></div>",
       "</div></header>",
       "<main id='main-content' tabindex='-1'>",
       "<section class='hero on-dark' aria-labelledby='hero-title'><div class='wrap hero-copy'>",
-      "<span class='eyebrow'>تحليل العقود بالذكاء الاصطناعي</span>",
-      "<h1 id='hero-title'>منصة معين لتحليل العقود</h1>",
-      "<p>تلخيص العقود، وتحديد البنود التي تستوجب المراجعة، والإجابة عن استفساراتك مع الإحالة إلى موضع كل نتيجة في النص الأصلي.</p>",
-      "<div class='hero-actions'><a class='button button-light' href='/upload/'>رفع عقد</a><a class='button button-outline-light' href='#how'>آلية العمل</a></div>",
+      "<span class='eyebrow'>", t("AI-powered contract analysis", "تحليل العقود بالذكاء الاصطناعي"), "</span>",
+      "<h1 id='hero-title'>", t("MAEEN Contract Analysis Platform", "منصة معين لتحليل العقود"), "</h1>",
+      "<p>", t("Summarize contracts, identify clauses that require review, and get answers to your inquiries, with every finding linked to its location in the original text.", "تلخيص العقود، وتحديد البنود التي تستوجب المراجعة، والإجابة عن استفساراتك مع الإحالة إلى موضع كل نتيجة في النص الأصلي."), "</p>",
+      "<div class='hero-actions'><a class='button button-light' href='/upload/'>", t("Upload contract", "رفع عقد"), "</a><a class='button button-outline-light' href='#how'>", t("How it works", "آلية العمل"), "</a></div>",
       "</div></section>",
-      "<div class='wrap'><div class='product-shot' role='img' aria-label='مثال توضيحي لنتيجة تحليل عقد إيجار سكني'>",
-      "<div class='shot-nav' aria-hidden='true'><span class='active'>العقود</span><span>الاستفسارات</span><span>رفع عقد</span></div>",
+      "<div class='wrap'><div class='product-shot' role='img' aria-label='", t("Illustrative analysis result for a residential lease agreement", "مثال توضيحي لنتيجة تحليل عقد إيجار سكني"), "'>",
+      "<div class='shot-nav' aria-hidden='true'><span class='active'>", t("Contracts", "العقود"), "</span><span>", t("Inquiries", "الاستفسارات"), "</span><span>", t("Upload contract", "رفع عقد"), "</span></div>",
       "<div class='shot-main' aria-hidden='true'>",
-      "<div class='shot-title'><strong>عقد إيجار سكني</strong><span class='status status-complete'>مكتمل</span></div>",
-      "<div class='shot-facts'><div><span>مدة العقد</span><b>12 شهرًا</b></div><div><span>دورية السداد</span><b>شهرية</b></div><div><span>الإنهاء</span><b>إشعار مسبق 30 يومًا</b></div></div>",
-      "<p class='source-note'>المصدر: البند 7، الصفحة 3</p>",
+      "<div class='shot-title'><strong>", t("Residential lease agreement", "عقد إيجار سكني"), "</strong><span class='status status-complete'>", t("Complete", "مكتمل"), "</span></div>",
+      "<div class='shot-facts'><div><span>", t("Contract term", "مدة العقد"), "</span><b>", t("12 months", "12 شهرًا"), "</b></div><div><span>", t("Payment frequency", "دورية السداد"), "</span><b>", t("Monthly", "شهرية"), "</b></div><div><span>", t("Termination", "الإنهاء"), "</span><b>", t("30 days' prior notice", "إشعار مسبق 30 يومًا"), "</b></div></div>",
+      "<p class='source-note'>", t("Source: Clause 7, page 3", "المصدر: البند 7، الصفحة 3"), "</p>",
       "</div></div></div>",
       "<section class='section' id='services' aria-labelledby='services-title'><div class='wrap'>",
-      "<div class='section-head'><h2 id='services-title'>خدمات المنصة</h2></div>",
+      "<div class='section-head'><h2 id='services-title'>", t("Platform services", "خدمات المنصة"), "</h2></div>",
       "<div class='services'>",
-      service("summary", "ملخص العقد", "عرض موجز لأطراف العقد والتزاماته وشروطه الأساسية."),
-      service("risk", "تحديد المخاطر", "إبراز البنود التي تستوجب المراجعة قبل التوقيع."),
-      service("source", "الإحالة إلى المصدر", "ربط كل نتيجة برقم الصفحة والبند في النص الأصلي."),
+      service("summary", t("Contract summary", "ملخص العقد"), t("A concise overview of the contract's parties, obligations, and key terms.", "عرض موجز لأطراف العقد والتزاماته وشروطه الأساسية.")),
+      service("risk", t("Risk identification", "تحديد المخاطر"), t("Highlights the clauses that require review before signing.", "إبراز البنود التي تستوجب المراجعة قبل التوقيع.")),
+      service("source", t("Source referencing", "الإحالة إلى المصدر"), t("Links every finding to its page and clause in the original text.", "ربط كل نتيجة برقم الصفحة والبند في النص الأصلي.")),
       "</div></div></section>",
       "<section class='section' id='how' aria-labelledby='how-title'><div class='wrap'>",
-      "<div class='section-head'><h2 id='how-title'>آلية العمل</h2></div>",
+      "<div class='section-head'><h2 id='how-title'>", t("How it works", "آلية العمل"), "</h2></div>",
       "<ol class='steps'>",
-      step(1, "رفع العقد", "ارفع العقد بصيغة PDF."),
-      step(2, "التحليل", "تستخرج المنصة البنود والمعلومات الأساسية."),
-      step(3, "مراجعة النتائج", "اطّلع على الملخص والمخاطر، وارجع إلى موضع كل نتيجة في العقد."),
+      step(1, t("Upload the contract", "رفع العقد"), t("Upload the contract in PDF format.", "ارفع العقد بصيغة PDF.")),
+      step(2, t("Analysis", "التحليل"), t("The platform extracts the clauses and key information.", "تستخرج المنصة البنود والمعلومات الأساسية.")),
+      step(3, t("Review the results", "مراجعة النتائج"), t("Review the summary and risks, and trace each finding back to its location in the contract.", "اطّلع على الملخص والمخاطر، وارجع إلى موضع كل نتيجة في العقد.")),
       "</ol>",
-      "<div class='cta-band on-dark'><div><h2>إجابات مستندة إلى نص العقد</h2><p>أنشئ حسابك لرفع العقود ومتابعة نتائج تحليلها.</p></div><a class='button button-light' href='/signup/'>إنشاء حساب جديد</a></div>",
+      "<div class='cta-band on-dark'><div><h2>", t("Answers grounded in the contract text", "إجابات مستندة إلى نص العقد"), "</h2><p>", t("Create an account to upload contracts and track their analysis results.", "أنشئ حسابك لرفع العقود ومتابعة نتائج تحليلها."), "</p></div><a class='button button-light' href='/signup/'>", t("Create account", "إنشاء حساب جديد"), "</a></div>",
       "</div></section>",
       "</main>",
-      "<footer class='wrap site-footer'><span>جميع الحقوق محفوظة لمنصة معين © 2026</span><span>المعلومات المقدمة لأغراض توضيحية ولا تُعد استشارة قانونية.</span></footer>"
+      "<footer class='wrap site-footer'><span>", t("© 2026 MAEEN. All rights reserved.", "جميع الحقوق محفوظة لمنصة معين © 2026"), "</span><span>", t("The information provided is for illustrative purposes only and does not constitute legal advice.", "المعلومات المقدمة لأغراض توضيحية ولا تُعد استشارة قانونية."), "</span></footer>"
     ].join("");
   }
 
@@ -149,149 +167,152 @@
       skipLink(),
       "<div class='auth'>",
       "<aside class='auth-aside on-dark'>",
-      "<div class='auth-aside-top'>", brand(), themeToggle(), "</div>",
-      "<div><h1>منصة معين لتحليل العقود</h1><p>تلخيص العقود وتحديد المخاطر، مع الإحالة إلى موضع كل نتيجة في النص الأصلي.</p></div>",
-      "<small>جميع الحقوق محفوظة لمنصة معين © 2026</small>",
+      "<div class='auth-aside-top'>", brand(), "<div class='aside-actions'>", langToggle(), themeToggle(), "</div></div>",
+      "<div><h1>", t("MAEEN Contract Analysis Platform", "منصة معين لتحليل العقود"), "</h1><p>", t("Contract summaries and risk identification, with every finding linked to its location in the original text.", "تلخيص العقود وتحديد المخاطر، مع الإحالة إلى موضع كل نتيجة في النص الأصلي."), "</p></div>",
+      "<small>", t("© 2026 MAEEN. All rights reserved.", "جميع الحقوق محفوظة لمنصة معين © 2026"), "</small>",
       "</aside>",
       "<main class='auth-main' id='main-content' tabindex='-1'><div class='auth-card'>",
-      "<h2>", signup ? "إنشاء حساب جديد" : "تسجيل الدخول", "</h2>",
-      "<p>", signup ? "يرجى إدخال البيانات المطلوبة لإنشاء حسابك." : "يرجى إدخال بيانات تسجيل الدخول.", "</p>",
+      "<h2>", signup ? t("Create account", "إنشاء حساب جديد") : t("Sign in", "تسجيل الدخول"), "</h2>",
+      "<p>", signup ? t("Please enter the required information to create your account.", "يرجى إدخال البيانات المطلوبة لإنشاء حسابك.") : t("Please enter your sign-in details.", "يرجى إدخال بيانات تسجيل الدخول."), "</p>",
       "<form data-auth-form>",
-      "<div class='field'><label for='email'>البريد الإلكتروني</label><input class='input' id='email' name='email' type='email' dir='ltr' autocomplete='email' placeholder='name@example.com' required></div>",
-      "<div class='field'><label for='password'>كلمة المرور</label><input class='input' id='password' name='password' type='password' required",
+      "<div class='field'><label for='email'>", t("Email address", "البريد الإلكتروني"), "</label><input class='input' id='email' name='email' type='email' dir='ltr' autocomplete='email' placeholder='name@example.com' required></div>",
+      "<div class='field'><label for='password'>", t("Password", "كلمة المرور"), "</label><input class='input' id='password' name='password' type='password' required",
       signup ? " autocomplete='new-password' minlength='8' aria-describedby='password-hint'>" : " autocomplete='current-password'>",
-      signup ? "<span class='hint' id='password-hint'>يجب أن تتكون كلمة المرور من 8 أحرف على الأقل.</span>" : "",
+      signup ? "<span class='hint' id='password-hint'>" + t("Password must be at least 8 characters.", "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل.") + "</span>" : "",
       "</div>",
-      "<button class='button button-primary button-block' type='submit'>", signup ? "إنشاء الحساب" : "تسجيل الدخول", "</button>",
+      "<button class='button button-primary button-block' type='submit'>", signup ? t("Create account", "إنشاء الحساب") : t("Sign in", "تسجيل الدخول"), "</button>",
       "</form>",
-      "<p class='auth-switch'>", signup ? "لديك حساب؟ <a class='text-link' href='/signin/'>تسجيل الدخول</a>" : "ليس لديك حساب؟ <a class='text-link' href='/signup/'>إنشاء حساب جديد</a>", "</p>",
-      "<a class='text-link auth-back' href='/'>العودة إلى الصفحة الرئيسية</a>",
+      "<p class='auth-switch'>", signup ? t("Already have an account?", "لديك حساب؟") + " <a class='text-link' href='/signin/'>" + t("Sign in", "تسجيل الدخول") + "</a>" : t("Don't have an account?", "ليس لديك حساب؟") + " <a class='text-link' href='/signup/'>" + t("Create account", "إنشاء حساب جديد") + "</a>", "</p>",
+      "<a class='text-link auth-back' href='/'>", t("Back to home page", "العودة إلى الصفحة الرئيسية"), "</a>",
       "</div></main></div>"
     ].join("");
   }
 
   function dashboard() {
     function stat(kind, label) {
-      return "<div class='stat'><span class='status status-" + kind + "'>" + label + "</span><b><span aria-hidden='true'>—</span><span class='sr-only'>لا توجد بيانات</span></b></div>";
+      return "<div class='stat'><span class='status status-" + kind + "'>" + label + "</span><b><span aria-hidden='true'>—</span><span class='sr-only'>" + t("No data", "لا توجد بيانات") + "</span></b></div>";
     }
     var content = [
-      "<div class='page-head'><div><h1>أهلًا بك في منصة معين</h1><p>تابع عقودك وحالة تحليلها، أو ارفع عقدًا جديدًا.</p></div><a class='button button-primary' href='/upload/'>رفع عقد</a></div>",
-      "<section class='block' aria-labelledby='services-title'><h2 class='section-title' id='services-title'>الخدمات</h2><div class='actions'>",
-      "<a class='action' href='/upload/'><span class='action-icon'>", icon("upload"), "</span><span><strong>رفع عقد</strong><span>رفع عقد بصيغة PDF لتحليله.</span></span></a>",
-      "<a class='action' href='/ask/'><span class='action-icon'>", icon("ask"), "</span><span><strong>الاستفسار عن عقد</strong><span>طرح استفسار حول عقد مكتمل التحليل والاطلاع على مصدر الإجابة.</span></span></a>",
+      "<div class='page-head'><div><h1>", t("Welcome to MAEEN", "أهلًا بك في منصة معين"), "</h1><p>", t("Track your contracts and their analysis status, or upload a new contract.", "تابع عقودك وحالة تحليلها، أو ارفع عقدًا جديدًا."), "</p></div><a class='button button-primary' href='/upload/'>", t("Upload contract", "رفع عقد"), "</a></div>",
+      "<section class='block' aria-labelledby='services-title'><h2 class='section-title' id='services-title'>", t("Services", "الخدمات"), "</h2><div class='actions'>",
+      "<a class='action' href='/upload/'><span class='action-icon'>", icon("upload"), "</span><span><strong>", t("Upload contract", "رفع عقد"), "</strong><span>", t("Upload a PDF contract for analysis.", "رفع عقد بصيغة PDF لتحليله."), "</span></span></a>",
+      "<a class='action' href='/ask/'><span class='action-icon'>", icon("ask"), "</span><span><strong>", t("Ask about a contract", "الاستفسار عن عقد"), "</strong><span>", t("Ask about an analyzed contract and view the source of each answer.", "طرح استفسار حول عقد مكتمل التحليل والاطلاع على مصدر الإجابة."), "</span></span></a>",
       "</div></section>",
-      "<section class='panel block' aria-labelledby='overview-title'><div class='panel-head'><h2 id='overview-title'>ملخص العقود</h2></div>",
-      "<div class='stats'>", stat("uploaded", "تم الرفع"), stat("processing", "قيد التحليل"), stat("complete", "مكتمل"), stat("failed", "تعذّر التحليل"), "</div>",
-      "<div class='panel-head'><h3>أحدث العقود</h3><div class='panel-links'><a class='text-link' href='/contracts/#favorites'>المفضلة</a><a class='text-link' href='/contracts/'>عرض جميع العقود</a></div></div>",
-      emptyState("contracts", "لا توجد عقود مرفوعة", "تظهر هنا أحدث العقود المرفوعة وحالة تحليلها.", "<a class='button button-secondary' href='/upload/'>رفع عقد</a>"),
+      "<section class='panel block' aria-labelledby='overview-title'><div class='panel-head'><h2 id='overview-title'>", t("Contracts overview", "ملخص العقود"), "</h2></div>",
+      "<div class='stats'>", stat("uploaded", t("Uploaded", "تم الرفع")), stat("processing", t("Analyzing", "قيد التحليل")), stat("complete", t("Complete", "مكتمل")), stat("failed", t("Analysis failed", "تعذّر التحليل")), "</div>",
+      "<div class='panel-head'><h3>", t("Recent contracts", "أحدث العقود"), "</h3><div class='panel-links'><a class='text-link' href='/contracts/#favorites'>", t("Favorites", "المفضلة"), "</a><a class='text-link' href='/contracts/'>", t("View all contracts", "عرض جميع العقود"), "</a></div></div>",
+      emptyState("contracts", t("No contracts uploaded", "لا توجد عقود مرفوعة"), t("Your most recent contracts and their analysis status will appear here.", "تظهر هنا أحدث العقود المرفوعة وحالة تحليلها."), "<a class='button button-secondary' href='/upload/'>" + t("Upload contract", "رفع عقد") + "</a>"),
       "</section>"
     ].join("");
-    return shell("dashboard", "الرئيسية", content);
+    return shell("dashboard", t("Home", "الرئيسية"), content);
   }
 
   function contracts() {
     var content = [
-      "<div class='page-head'><div><h1>العقود</h1><p>جميع العقود المرفوعة وحالة تحليلها.</p></div><a class='button button-primary' href='/upload/'>رفع عقد</a></div>",
-      "<section class='panel' aria-label='قائمة العقود'>",
-      "<div class='panel-tabs'><div class='tabs' role='group' aria-label='تصفية العقود'>",
-      "<button class='tab active' type='button' data-library-tab='all' aria-pressed='true'>جميع العقود</button>",
-      "<button class='tab' type='button' data-library-tab='recent' aria-pressed='false'>الأحدث</button>",
-      "<button class='tab' type='button' data-library-tab='favorites' aria-pressed='false'>المفضلة</button>",
+      "<div class='page-head'><div><h1>", t("Contracts", "العقود"), "</h1><p>", t("All uploaded contracts and their analysis status.", "جميع العقود المرفوعة وحالة تحليلها."), "</p></div><a class='button button-primary' href='/upload/'>", t("Upload contract", "رفع عقد"), "</a></div>",
+      "<section class='panel' aria-label='", t("Contract list", "قائمة العقود"), "'>",
+      "<div class='panel-tabs'><div class='tabs' role='group' aria-label='", t("Filter contracts", "تصفية العقود"), "'>",
+      "<button class='tab active' type='button' data-library-tab='all' aria-pressed='true'>", t("All contracts", "جميع العقود"), "</button>",
+      "<button class='tab' type='button' data-library-tab='recent' aria-pressed='false'>", t("Recent", "الأحدث"), "</button>",
+      "<button class='tab' type='button' data-library-tab='favorites' aria-pressed='false'>", t("Favorites", "المفضلة"), "</button>",
       "</div></div>",
-      "<div class='toolbar'><label class='sr-only' for='contract-search'>البحث باسم العقد</label><input class='input search-input' id='contract-search' type='search' placeholder='البحث باسم العقد'>",
-      "<label class='sr-only' for='contract-sort'>ترتيب العقود</label><select class='input sort-select' id='contract-sort'><option>الأحدث أولًا</option><option>الأقدم أولًا</option></select></div>",
-      "<div class='list-head' aria-hidden='true'><span>اسم العقد</span><span>الحالة</span><span>تاريخ آخر تحديث</span><span>المفضلة</span></div>",
-      "<div data-library-panel='all'>", emptyState("contracts", "لا توجد عقود مرفوعة", "تظهر العقود هنا بعد رفعها.", "<a class='button button-secondary' href='/upload/'>رفع عقد</a>"), "</div>",
-      "<div data-library-panel='recent' hidden>", emptyState("recent", "لا توجد عقود حديثة", "تظهر هنا العقود التي رفعتها أو اطّلعت عليها مؤخرًا."), "</div>",
-      "<div data-library-panel='favorites' hidden>", emptyState("star", "لا توجد عقود في المفضلة", "أضف العقود المهمة إلى المفضلة للوصول إليها بسرعة."), "</div>",
+      "<div class='toolbar'><label class='sr-only' for='contract-search'>", t("Search by contract name", "البحث باسم العقد"), "</label><input class='input search-input' id='contract-search' type='search' placeholder='", t("Search by contract name", "البحث باسم العقد"), "'>",
+      "<label class='sr-only' for='contract-sort'>", t("Sort contracts", "ترتيب العقود"), "</label><select class='input sort-select' id='contract-sort'><option>", t("Newest first", "الأحدث أولًا"), "</option><option>", t("Oldest first", "الأقدم أولًا"), "</option></select></div>",
+      "<div class='list-head' aria-hidden='true'><span>", t("Contract name", "اسم العقد"), "</span><span>", t("Status", "الحالة"), "</span><span>", t("Last updated", "تاريخ آخر تحديث"), "</span><span>", t("Favorite", "المفضلة"), "</span></div>",
+      "<div data-library-panel='all'>", emptyState("contracts", t("No contracts uploaded", "لا توجد عقود مرفوعة"), t("Contracts will appear here once uploaded.", "تظهر العقود هنا بعد رفعها."), "<a class='button button-secondary' href='/upload/'>" + t("Upload contract", "رفع عقد") + "</a>"), "</div>",
+      "<div data-library-panel='recent' hidden>", emptyState("recent", t("No recent contracts", "لا توجد عقود حديثة"), t("Contracts you recently uploaded or viewed will appear here.", "تظهر هنا العقود التي رفعتها أو اطّلعت عليها مؤخرًا.")), "</div>",
+      "<div data-library-panel='favorites' hidden>", emptyState("star", t("No favorite contracts", "لا توجد عقود في المفضلة"), t("Add important contracts to your favorites for quick access.", "أضف العقود المهمة إلى المفضلة للوصول إليها بسرعة.")), "</div>",
       "</section>",
-      "<div class='legend'><span>حالات العقد:</span><span class='status status-uploaded'>تم الرفع</span><span class='status status-processing'>قيد التحليل</span><span class='status status-complete'>مكتمل</span><span class='status status-failed'>تعذّر التحليل</span></div>"
+      "<div class='legend'><span>", t("Contract statuses:", "حالات العقد:"), "</span><span class='status status-uploaded'>", t("Uploaded", "تم الرفع"), "</span><span class='status status-processing'>", t("Analyzing", "قيد التحليل"), "</span><span class='status status-complete'>", t("Complete", "مكتمل"), "</span><span class='status status-failed'>", t("Analysis failed", "تعذّر التحليل"), "</span></div>"
     ].join("");
-    return shell("contracts", "العقود", content);
+    return shell("contracts", t("Contracts", "العقود"), content);
   }
 
   function upload() {
     var content = [
-      "<div class='page-head'><div><h1>رفع عقد</h1><p>يرجى اختيار ملف العقد بصيغة PDF.</p></div></div>",
-      "<div class='upload-grid'><section class='panel upload-card' aria-label='اختيار ملف العقد'>",
-      "<div class='dropzone' id='dropzone'><span class='empty-icon'>", icon("upload"), "</span><h2>اسحب ملف العقد وأفلته هنا</h2><p>أو اختر الملف من جهازك. الصيغة المقبولة: PDF، والحد الأقصى للحجم: 50 ميغابايت.</p>",
-      "<button class='button button-secondary' type='button' id='select-file'>اختيار ملف</button><input class='file-input' id='file-input' type='file' accept='.pdf,application/pdf' tabindex='-1' aria-hidden='true'></div>",
-      "<div class='file-row' id='file-preview' hidden><div><strong id='file-name'></strong><span id='file-size'></span></div><button class='button-link' type='button' id='remove-file'>إزالة</button></div>",
+      "<div class='page-head'><div><h1>", t("Upload contract", "رفع عقد"), "</h1><p>", t("Please select the contract file in PDF format.", "يرجى اختيار ملف العقد بصيغة PDF."), "</p></div></div>",
+      "<div class='upload-grid'><section class='panel upload-card' aria-label='", t("Select the contract file", "اختيار ملف العقد"), "'>",
+      "<div class='dropzone' id='dropzone'><span class='empty-icon'>", icon("upload"), "</span><h2>", t("Drag and drop the contract file here", "اسحب ملف العقد وأفلته هنا"), "</h2><p>", t("Or choose the file from your device. Accepted format: PDF. Maximum size: 50 MB.", "أو اختر الملف من جهازك. الصيغة المقبولة: PDF، والحد الأقصى للحجم: 50 ميغابايت."), "</p>",
+      "<button class='button button-secondary' type='button' id='select-file'>", t("Choose file", "اختيار ملف"), "</button><input class='file-input' id='file-input' type='file' accept='.pdf,application/pdf' tabindex='-1' aria-hidden='true'></div>",
+      "<div class='file-row' id='file-preview' hidden><div><strong id='file-name'></strong><span id='file-size'></span></div><button class='button-link' type='button' id='remove-file'>", t("Remove", "إزالة"), "</button></div>",
       "<p class='alert' id='upload-error' role='alert' hidden></p>",
-      "<div class='upload-actions'><button class='button button-primary' type='button' id='upload-submit'>رفع العقد</button></div>",
+      "<div class='upload-actions'><button class='button button-primary' type='button' id='upload-submit'>", t("Upload contract", "رفع العقد"), "</button></div>",
       "</section>",
-      "<aside class='panel help'><h2>قبل الرفع</h2><p>تأكد من أن الملف بصيغة PDF، وأن صفحاته واضحة وقابلة للقراءة.</p><hr class='divider'><h2>بعد الرفع</h2><p>تظهر حالة العقد في صفحة العقود، ويبدأ التحليل تلقائيًا بعد اكتمال الرفع.</p></aside>",
+      "<aside class='panel help'><h2>", t("Before uploading", "قبل الرفع"), "</h2><p>", t("Make sure the file is in PDF format and that its pages are clear and legible.", "تأكد من أن الملف بصيغة PDF، وأن صفحاته واضحة وقابلة للقراءة."), "</p><hr class='divider'><h2>", t("After uploading", "بعد الرفع"), "</h2><p>", t("The contract status appears on the Contracts page, and analysis starts automatically once the upload is complete.", "تظهر حالة العقد في صفحة العقود، ويبدأ التحليل تلقائيًا بعد اكتمال الرفع."), "</p></aside>",
       "</div>"
     ].join("");
-    return shell("upload", "رفع عقد", content);
+    return shell("upload", t("Upload contract", "رفع عقد"), content);
   }
 
   function details() {
     function tab(name, label, selected) {
       return "<button class='tab" + (selected ? " active" : "") + "' type='button' role='tab' id='tab-" + name + "' aria-controls='panel-" + name + "' aria-selected='" + (selected ? "true" : "false") + "' data-tab='" + name + "'>" + label + "</button>";
     }
-    var tags = ["الأطراف", "الالتزامات", "شروط الدفع", "الإنهاء", "التجديد", "البنود الجوهرية", "المخاطر"].map(function (label) {
+    var tags = [
+      t("Parties", "الأطراف"), t("Obligations", "الالتزامات"), t("Payment terms", "شروط الدفع"), t("Termination", "الإنهاء"),
+      t("Renewal", "التجديد"), t("Material clauses", "البنود الجوهرية"), t("Risks", "المخاطر")
+    ].map(function (label) {
       return "<span class='tag' role='listitem'>" + label + "</span>";
     }).join("");
     var content = [
-      "<a class='text-link back-link' href='/contracts/'>العودة إلى العقود</a>",
-      "<div class='page-head'><div><h1>تفاصيل العقد</h1></div><span class='status'>لم يُحدَّد عقد</span></div>",
-      "<div class='panel meta'><div><span>اسم الملف</span><strong>—</strong></div><div><span>الحالة</span><strong>—</strong></div><div><span>تاريخ الرفع</span><strong>—</strong></div></div>",
-      "<section class='panel'><div class='panel-tabs'><div class='tabs' role='tablist' aria-label='أقسام العقد'>",
-      tab("overview", "نظرة عامة", true), tab("analysis", "نتائج التحليل", false), tab("ask", "الاستفسارات", false),
+      "<a class='text-link back-link' href='/contracts/'>", t("Back to contracts", "العودة إلى العقود"), "</a>",
+      "<div class='page-head'><div><h1>", t("Contract details", "تفاصيل العقد"), "</h1></div><span class='status'>", t("No contract selected", "لم يُحدَّد عقد"), "</span></div>",
+      "<div class='panel meta'><div><span>", t("File name", "اسم الملف"), "</span><strong>—</strong></div><div><span>", t("Status", "الحالة"), "</span><strong>—</strong></div><div><span>", t("Upload date", "تاريخ الرفع"), "</span><strong>—</strong></div></div>",
+      "<section class='panel'><div class='panel-tabs'><div class='tabs' role='tablist' aria-label='", t("Contract sections", "أقسام العقد"), "'>",
+      tab("overview", t("Overview", "نظرة عامة"), true), tab("analysis", t("Analysis results", "نتائج التحليل"), false), tab("ask", t("Inquiries", "الاستفسارات"), false),
       "</div></div>",
       "<div class='tab-panel' role='tabpanel' id='panel-overview' aria-labelledby='tab-overview' data-tab-panel='overview'><div class='detail-grid'>",
-      "<div class='detail-box'><h3>ملخص العقد</h3><p>يظهر الملخص بعد اكتمال تحليل العقد.</p></div>",
-      "<div class='detail-box'><h3>المعلومات الأساسية</h3><p>تظهر المعلومات الأساسية بعد اكتمال تحليل العقد.</p></div>",
+      "<div class='detail-box'><h3>", t("Contract summary", "ملخص العقد"), "</h3><p>", t("The summary will appear once the contract analysis is complete.", "يظهر الملخص بعد اكتمال تحليل العقد."), "</p></div>",
+      "<div class='detail-box'><h3>", t("Key information", "المعلومات الأساسية"), "</h3><p>", t("Key information will appear once the contract analysis is complete.", "تظهر المعلومات الأساسية بعد اكتمال تحليل العقد."), "</p></div>",
       "</div></div>",
       "<div class='tab-panel' role='tabpanel' id='panel-analysis' aria-labelledby='tab-analysis' data-tab-panel='analysis' hidden>",
-      emptyState("summary", "لا توجد نتائج تحليل", "تظهر هنا نتائج التحليل مع الإحالة إلى مصدر كل نتيجة."),
-      "<div class='tags' role='list' aria-label='أقسام التحليل'>", tags, "</div>",
+      emptyState("summary", t("No analysis results", "لا توجد نتائج تحليل"), t("Analysis results will appear here, each linked to its source.", "تظهر هنا نتائج التحليل مع الإحالة إلى مصدر كل نتيجة.")),
+      "<div class='tags' role='list' aria-label='", t("Analysis sections", "أقسام التحليل"), "'>", tags, "</div>",
       "</div>",
       "<div class='tab-panel' role='tabpanel' id='panel-ask' aria-labelledby='tab-ask' data-tab-panel='ask' hidden>",
-      "<h2 class='section-title'>الاستفسار عن العقد</h2><p class='muted'>تظهر الإجابة مع رقم الصفحة والبند والنص الذي تستند إليه.</p>",
-      "<form class='qa-form' data-qa-form><label class='sr-only' for='detail-question'>اكتب استفسارك</label><textarea class='input' id='detail-question' rows='3' placeholder='مثال: ما شروط إنهاء العقد؟'></textarea><button class='button button-primary' type='submit'>إرسال الاستفسار</button></form>",
+      "<h2 class='section-title'>", t("Ask about the contract", "الاستفسار عن العقد"), "</h2><p class='muted'>", t("Each answer shows the page, clause, and text it is based on.", "تظهر الإجابة مع رقم الصفحة والبند والنص الذي تستند إليه."), "</p>",
+      "<form class='qa-form' data-qa-form><label class='sr-only' for='detail-question'>", t("Type your inquiry", "اكتب استفسارك"), "</label><textarea class='input' id='detail-question' rows='3' placeholder='", t("Example: What are the termination conditions?", "مثال: ما شروط إنهاء العقد؟"), "'></textarea><button class='button button-primary' type='submit'>", t("Submit inquiry", "إرسال الاستفسار"), "</button></form>",
       "<p class='disclaimer'>", DISCLAIMER, "</p>",
       "</div>",
       "</section>"
     ].join("");
-    return shell("details", "تفاصيل العقد", content);
+    return shell("details", t("Contract details", "تفاصيل العقد"), content);
   }
 
   function ask() {
     var content = [
-      "<div class='page-head'><div><h1>الاستفسارات</h1><p>يرجى اختيار عقد للبدء.</p></div></div>",
-      "<section class='panel ask' aria-label='الاستفسار عن عقد'>",
+      "<div class='page-head'><div><h1>", t("Inquiries", "الاستفسارات"), "</h1><p>", t("Please select a contract to begin.", "يرجى اختيار عقد للبدء."), "</p></div></div>",
+      "<section class='panel ask' aria-label='", t("Ask about a contract", "الاستفسار عن عقد"), "'>",
       "<aside class='ask-aside'>",
-      "<div><label class='aside-label' for='ask-contract'>العقد المحدد</label><select class='input' id='ask-contract'><option>اختيار عقد</option></select><p class='aside-note'>لا توجد عقود مكتملة التحليل.</p></div>",
-      "<div class='history'><span class='aside-label'>سجل الاستفسارات</span><p class='aside-note'>لا توجد استفسارات سابقة.</p></div>",
-      "<a class='button button-secondary' href='/upload/'>رفع عقد</a>",
+      "<div><label class='aside-label' for='ask-contract'>", t("Selected contract", "العقد المحدد"), "</label><select class='input' id='ask-contract'><option>", t("Select a contract", "اختيار عقد"), "</option></select><p class='aside-note'>", t("No analyzed contracts available.", "لا توجد عقود مكتملة التحليل."), "</p></div>",
+      "<div class='history'><span class='aside-label'>", t("Inquiry history", "سجل الاستفسارات"), "</span><p class='aside-note'>", t("No previous inquiries.", "لا توجد استفسارات سابقة."), "</p></div>",
+      "<a class='button button-secondary' href='/upload/'>", t("Upload contract", "رفع عقد"), "</a>",
       "</aside>",
       "<div class='ask-main'>",
-      "<div class='ask-top'><strong>استفسار جديد</strong><span>يرجى اختيار عقد</span></div>",
-      "<div class='ask-body' role='log' aria-label='محادثة الاستفسار'><div class='ask-welcome'><span class='empty-icon'>", icon("ask"), "</span>",
-      "<h3>الاستفسار عن عقد</h3><p>اختر عقدًا مكتمل التحليل، ثم اكتب استفسارك. تظهر كل إجابة مع رقم الصفحة والبند والنص الذي تستند إليه.</p>",
-      "<div class='suggestions' role='group' aria-label='أمثلة على الاستفسارات'><button class='suggestion' type='button'>ما التزاماتي في العقد؟</button><button class='suggestion' type='button'>ما شروط إنهاء العقد؟</button><button class='suggestion' type='button'>ما شروط التجديد؟</button></div>",
+      "<div class='ask-top'><strong>", t("New inquiry", "استفسار جديد"), "</strong><span>", t("Please select a contract", "يرجى اختيار عقد"), "</span></div>",
+      "<div class='ask-body' role='log' aria-label='", t("Inquiry conversation", "محادثة الاستفسار"), "'><div class='ask-welcome'><span class='empty-icon'>", icon("ask"), "</span>",
+      "<h3>", t("Ask about a contract", "الاستفسار عن عقد"), "</h3><p>", t("Select an analyzed contract, then type your inquiry. Each answer shows the page, clause, and text it is based on.", "اختر عقدًا مكتمل التحليل، ثم اكتب استفسارك. تظهر كل إجابة مع رقم الصفحة والبند والنص الذي تستند إليه."), "</p>",
+      "<div class='suggestions' role='group' aria-label='", t("Example inquiries", "أمثلة على الاستفسارات"), "'><button class='suggestion' type='button'>", t("What are my obligations under the contract?", "ما التزاماتي في العقد؟"), "</button><button class='suggestion' type='button'>", t("What are the termination conditions?", "ما شروط إنهاء العقد؟"), "</button><button class='suggestion' type='button'>", t("What are the renewal terms?", "ما شروط التجديد؟"), "</button></div>",
       "</div></div>",
-      "<div class='composer-wrap'><form class='composer' data-qa-form><label class='sr-only' for='contract-question'>اكتب استفسارك</label><textarea class='input' id='contract-question' rows='1' placeholder='اكتب استفسارك هنا'></textarea><button class='button button-primary' type='submit'>إرسال الاستفسار</button></form>",
+      "<div class='composer-wrap'><form class='composer' data-qa-form><label class='sr-only' for='contract-question'>", t("Type your inquiry", "اكتب استفسارك"), "</label><textarea class='input' id='contract-question' rows='1' placeholder='", t("Type your inquiry here", "اكتب استفسارك هنا"), "'></textarea><button class='button button-primary' type='submit'>", t("Submit inquiry", "إرسال الاستفسار"), "</button></form>",
       "<p class='disclaimer'>", DISCLAIMER, "</p></div>",
       "</div></section>"
     ].join("");
-    return shell("ask", "الاستفسارات", content);
+    return shell("ask", t("Inquiries", "الاستفسارات"), content);
   }
 
   function account() {
     var content = [
-      "<div class='page-head'><div><h1>الحساب</h1><p>بيانات حسابك وإعدادات الدخول.</p></div></div>",
+      "<div class='page-head'><div><h1>", t("Account", "الحساب"), "</h1><p>", t("Your account details and sign-in settings.", "بيانات حسابك وإعدادات الدخول."), "</p></div></div>",
       "<div class='account-grid'>",
-      "<section class='panel' aria-labelledby='account-info-title'><div class='panel-head'><h2 id='account-info-title'>بيانات الحساب</h2></div><div class='panel-body'>",
-      "<div class='field-row'><span>البريد الإلكتروني</span><strong>—</strong></div>",
-      "<div class='field-row'><span>حالة الحساب</span><strong>غير مسجّل الدخول</strong></div>",
+      "<section class='panel' aria-labelledby='account-info-title'><div class='panel-head'><h2 id='account-info-title'>", t("Account details", "بيانات الحساب"), "</h2></div><div class='panel-body'>",
+      "<div class='field-row'><span>", t("Email address", "البريد الإلكتروني"), "</span><strong>—</strong></div>",
+      "<div class='field-row'><span>", t("Account status", "حالة الحساب"), "</span><strong>", t("Not signed in", "غير مسجّل الدخول"), "</strong></div>",
       "</div></section>",
-      "<section class='panel panel-pad account-login' aria-labelledby='account-login-title'><h2 class='section-title' id='account-login-title'>تسجيل الدخول</h2><p class='muted'>يرجى تسجيل الدخول للاطلاع على بيانات حسابك.</p><a class='button button-primary' href='/signin/'>تسجيل الدخول</a></section>",
+      "<section class='panel panel-pad account-login' aria-labelledby='account-login-title'><h2 class='section-title' id='account-login-title'>", t("Sign in", "تسجيل الدخول"), "</h2><p class='muted'>", t("Please sign in to view your account details.", "يرجى تسجيل الدخول للاطلاع على بيانات حسابك."), "</p><a class='button button-primary' href='/signin/'>", t("Sign in", "تسجيل الدخول"), "</a></section>",
       "</div>"
     ].join("");
-    return shell("account", "الحساب", content);
+    return shell("account", t("Account", "الحساب"), content);
   }
 
   var views = {
@@ -324,7 +345,7 @@
     if (themeMeta) themeMeta.setAttribute("content", darkHeader ? (dark ? "#12223a" : "#13294b") : (dark ? "#0f1218" : "#f7f8fa"));
     document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
       button.setAttribute("aria-pressed", dark ? "true" : "false");
-      button.setAttribute("aria-label", dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن");
+      button.setAttribute("aria-label", dark ? t("Switch to light mode", "تفعيل الوضع الفاتح") : t("Switch to dark mode", "تفعيل الوضع الداكن"));
     });
   }
   syncThemeButtons();
@@ -336,7 +357,25 @@
       syncThemeButtons();
     });
   });
-  document.title = ({ landing: "منصة معين لتحليل العقود", signin: "تسجيل الدخول | معين", signup: "إنشاء حساب جديد | معين", dashboard: "الرئيسية | معين", upload: "رفع عقد | معين", contracts: "العقود | معين", details: "تفاصيل العقد | معين", ask: "الاستفسارات | معين", account: "الحساب | معين" })[page];
+  document.querySelectorAll("[data-lang-toggle]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      try { localStorage.setItem("maeen-lang", lang === "ar" ? "en" : "ar"); } catch (error) { /* Without storage the language cannot change. */ }
+      location.reload();
+    });
+  });
+  document.title = ({
+    landing: t("MAEEN Contract Analysis Platform", "منصة معين لتحليل العقود"),
+    signin: t("Sign in | MAEEN", "تسجيل الدخول | معين"),
+    signup: t("Create account | MAEEN", "إنشاء حساب جديد | معين"),
+    dashboard: t("Home | MAEEN", "الرئيسية | معين"),
+    upload: t("Upload contract | MAEEN", "رفع عقد | معين"),
+    contracts: t("Contracts | MAEEN", "العقود | معين"),
+    details: t("Contract details | MAEEN", "تفاصيل العقد | معين"),
+    ask: t("Inquiries | MAEEN", "الاستفسارات | معين"),
+    account: t("Account | MAEEN", "الحساب | معين")
+  })[page];
+  var descriptionMeta = document.querySelector('meta[name="description"]');
+  if (descriptionMeta) descriptionMeta.setAttribute("content", t("MAEEN Contract Analysis Platform: contract summaries and risk identification, with every finding linked to its location in the original text.", "منصة معين لتحليل العقود: تلخيص العقود وتحديد المخاطر، مع الإحالة إلى موضع كل نتيجة في النص الأصلي."));
 
   var toast = document.createElement("div");
   toast.className = "toast";
@@ -367,7 +406,7 @@
       var question = qaForm.querySelector("textarea");
       if (!question.value.trim()) {
         question.focus();
-        showToast("يرجى كتابة الاستفسار أولًا.");
+        showToast(t("Please type your inquiry first.", "يرجى كتابة الاستفسار أولًا."));
         return;
       }
       showToast(UNAVAILABLE);
@@ -429,6 +468,9 @@
   }
 
   var detailTabs = Array.from(document.querySelectorAll("[data-tab]"));
+  // The next tab is to the left in Arabic and to the right in English.
+  var nextTabKey = lang === "ar" ? "ArrowLeft" : "ArrowRight";
+  var previousTabKey = lang === "ar" ? "ArrowRight" : "ArrowLeft";
   function activateDetailTab(tab, moveFocus) {
     var name = tab.getAttribute("data-tab");
     detailTabs.forEach(function (item) {
@@ -448,8 +490,8 @@
     tab.addEventListener("keydown", function (event) {
       var index = detailTabs.indexOf(tab);
       var next = index;
-      if (event.key === "ArrowLeft") next = (index + 1) % detailTabs.length;
-      else if (event.key === "ArrowRight") next = (index - 1 + detailTabs.length) % detailTabs.length;
+      if (event.key === nextTabKey) next = (index + 1) % detailTabs.length;
+      else if (event.key === previousTabKey) next = (index - 1 + detailTabs.length) % detailTabs.length;
       else if (event.key === "Home") next = 0;
       else if (event.key === "End") next = detailTabs.length - 1;
       else return;
@@ -489,9 +531,9 @@
   var uploadSubmit = document.getElementById("upload-submit");
   var selectedFile = null;
   function formatSize(bytes) {
-    if (bytes < 1024) return bytes + " بايت";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " كيلوبايت";
-    return (bytes / (1024 * 1024)).toFixed(1) + " ميغابايت";
+    if (bytes < 1024) return bytes + t(" bytes", " بايت");
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + t(" KB", " كيلوبايت");
+    return (bytes / (1024 * 1024)).toFixed(1) + t(" MB", " ميغابايت");
   }
   function showUploadError(message) {
     uploadError.textContent = message;
@@ -510,30 +552,30 @@
     filePreview.hidden = true;
     uploadError.hidden = true;
     if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) {
-      showUploadError("عذرًا، يُقبل ملف بصيغة PDF فقط.");
+      showUploadError(t("Sorry, only PDF files are accepted.", "عذرًا، يُقبل ملف بصيغة PDF فقط."));
       return;
     }
     if (file.size === 0) {
-      showUploadError("عذرًا، الملف المختار فارغ. يرجى اختيار ملف آخر.");
+      showUploadError(t("Sorry, the selected file is empty. Please choose another file.", "عذرًا، الملف المختار فارغ. يرجى اختيار ملف آخر."));
       return;
     }
     if (file.size > MAX_PDF_BYTES) {
-      showUploadError("عذرًا، يتجاوز حجم الملف الحد المسموح (50 ميغابايت).");
+      showUploadError(t("Sorry, the file exceeds the maximum size (50 MB).", "عذرًا، يتجاوز حجم الملف الحد المسموح (50 ميغابايت)."));
       return;
     }
     try {
       var signature = await file.slice(0, 5).text();
       if (signature !== "%PDF-") {
-        showUploadError("عذرًا، تعذّر التحقق من صيغة الملف. يرجى اختيار ملف PDF صالح.");
+        showUploadError(t("Sorry, the file format could not be verified. Please choose a valid PDF file.", "عذرًا، تعذّر التحقق من صيغة الملف. يرجى اختيار ملف PDF صالح."));
         return;
       }
     } catch (error) {
-      showUploadError("عذرًا، تعذّرت قراءة الملف. يرجى المحاولة مرة أخرى.");
+      showUploadError(t("Sorry, the file could not be read. Please try again.", "عذرًا، تعذّرت قراءة الملف. يرجى المحاولة مرة أخرى."));
       return;
     }
     selectedFile = file;
     fileName.textContent = file.name;
-    fileSize.textContent = formatSize(file.size) + " · جاهز للرفع";
+    fileSize.textContent = formatSize(file.size) + t(" · Ready to upload", " · جاهز للرفع");
     filePreview.hidden = false;
   }
   if (fileInput && dropzone) {
@@ -549,7 +591,7 @@
     document.getElementById("remove-file").addEventListener("click", clearFile);
     uploadSubmit.addEventListener("click", function () {
       if (!selectedFile) {
-        showUploadError("يرجى اختيار ملف العقد أولًا.");
+        showUploadError(t("Please select the contract file first.", "يرجى اختيار ملف العقد أولًا."));
         return;
       }
       showToast(UNAVAILABLE);

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from routers.F_accounts import router
 from routers.Y_contracts import router as contracts_router
+from routers.F_assistant import router as assistant_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -8,6 +9,7 @@ import os
 app = FastAPI()
 app.include_router(router)
 app.include_router(contracts_router)
+app.include_router(assistant_router)
 
 frontend_url = os.getenv("FRONTEND_URL")
 

@@ -5,9 +5,9 @@ State as of 2026-10-11. Yasser continues the backend. The frontend in `frontend/
 ## What exists
 
 - FastAPI app in `backend/` with authentication (Supabase Auth, project **MAEEN**, `qtgxldycxaghkvgsxbet`) and contract upload, list, view and delete.
-- The MAEEN Assistant: a general chat assistant on OpenAI for signed-in users (see [MAEEN Assistant](#maeen-assistant)).
+- The MAEEN Assistant: a chat assistant on OpenAI for signed-in users (see [MAEEN Assistant](#maeen-assistant)).
+- Contract analysis and questions about a contract, through the AI Backend package in `ai_backend/` (see [AI Backend integration](#ai-backend-integration)).
 - Database schema, RLS, private PDF bucket and pgvector are applied on MAEEN. See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md).
-- No contract analysis or per-contract chat endpoints yet; those come from the AI Backend.
 
 Setup and run steps are in the root [README](../README.md#general-backend-fastapi). Environment variables are listed in `backend/.env.example`.
 
@@ -26,6 +26,10 @@ All bodies are JSON, except the contract upload, which is `multipart/form-data`.
 | `GET` | `/api/contracts/{id}` | — | `200` contract | `404` not found or not the user's, `422` id is not a UUID, `401`, `502`, `503` |
 | `DELETE` | `/api/contracts/{id}` | — | `204`, no body; the PDF, analyses, chunks and chat go with it | `404`, `422`, `401`, `502`, `503` |
 | `POST` | `/api/assistant/chat` | `{"messages": [{"role", "content"}, ...]}` | `200 {"reply"}` | `422` invalid conversation, `429` over 20 questions in 10 minutes (with `Retry-After`), `401`, `502`, `503` |
+| `POST` | `/api/contracts/{id}/analyze` | — | `202 {"status": "processing"}`; the analysis runs in the background | `404`, `409` already analyzing, `422`, `429` over 10 analyses an hour, `401`, `502`, `503` |
+| `GET` | `/api/contracts/{id}/analysis` | — | `200 {"analysis", "created_at"}` | `404` contract or analysis not found, `422`, `401`, `502`, `503` |
+| `POST` | `/api/contracts/{id}/chat` | `{"question"}` | `200 {"answer", "sources": [{"page", "text"}]}` | `409` analysis not complete, `404`, `422`, `429` (shared with the assistant), `401`, `502`, `503` |
+| `GET` | `/api/contracts/{id}/chat` | — | `200 [{"question", "answer", "sources", "created_at"}, ...]`, oldest first, up to 50 | `404`, `422`, `401`, `502`, `503` |
 
 All `/api/contracts` endpoints need `Authorization: Bearer <access_token>`. A contract is:
 
@@ -47,14 +51,26 @@ await fetch(`${API}/api/contracts`, {
 });
 ```
 
+## AI Backend integration
+
+The AI Backend team's package (`ai_backend/`, from the `Ai-backend` branch by AFZ0X and I-Bhan) does the AI work. Its README leaves ownership checks, contract status, `analysis_results` and `chat_history` to the General Backend; `services/F_ai_service.py` does those and calls the package's functions directly (`process_contract`, `chat_with_contract`), so its token-protected `/internal/ai` router is not needed in the same process.
+
+- Code: `routers/F_ai.py`, `services/F_ai_service.py`, `models/F_ai_data.py`, tests in `tests/test_ai_integration.py` (the package itself is tested in `ai_backend/tests`).
+- **Analysis:** `POST /api/contracts/{id}/analyze` checks the contract is the user's and not already processing, sets `status` to `processing`, replies `202`, then runs `process_contract` in the background. On success it replaces the contract's row in `analysis_results` and sets `completed`; on any failure it sets `failed` and logs the cause under `maeen.ai`. The frontend starts it right after an upload, and the contract page offers it for `uploaded` and `failed` contracts.
+- **Analysis result:** the `analysis` object is the AI Backend's `ContractAnalysis`: `summary`, `parties`, `obligations`, `payment_terms`, `termination`, `renewal`, `important_clauses`, `risks` (each with `pages`), and `suggested_filename`. Its text is in Arabic.
+- **Questions:** `POST /api/contracts/{id}/chat` works only when the analysis is `completed` (otherwise `409`). It calls `chat_with_contract`, saves the question, answer and sources in `chat_history`, and returns them. If saving fails, the answer is still returned and the error is logged.
+- **Limits:** 10 analyses per user per hour (each makes several paid OpenAI requests); contract questions share the assistant's 20 per 10 minutes.
+- **Settings** (`backend/.env`): `OPENAI_API_KEY`, `CHAT_MODEL`, `EMBEDDING_MODEL` (`text-embedding-3-small`, 1536 dimensions), and `SUPABASE_DB_URL` (the direct Postgres connection string, needed for pgvector). The service_role key is reused from `SUPABASE_KEY` as the package's `SUPABASE_SERVICE_ROLE_KEY`. When a setting is missing, these endpoints answer `503` without calling OpenAI.
+- **Known limits:** the analysis runs inside the API process, so a restart during an analysis leaves the contract in `processing`; it can be started again once the status is fixed (or after a future "stuck job" check). Scanned PDFs without a text layer fail (no OCR yet, see `ai_backend/README.md`).
+
 ## MAEEN Assistant
 
-The round button in the corner of every signed-in page opens a chat with the MAEEN Assistant. It explains how MAEEN works and answers general questions about contracts. It does not read the user's contracts; per-contract answers are the AI Backend's `/chat/{contract_id}`.
+The round button in the corner of every signed-in page opens a chat with the MAEEN Assistant. It explains how MAEEN works and answers general questions about contracts. When the user chooses one of their analyzed contracts in the window, the question goes to `POST /api/contracts/{id}/chat` instead and the answer shows its sources.
 
 - Code: `routers/F_assistant.py`, `services/F_assistant_service.py`, `models/F_assistant_data.py`, tests in `tests/test_assistant.py`.
-- Settings in `backend/.env`: `OPENAI_API_KEY` and `CHAT_MODEL`, the same names the AI Backend uses. If either is empty, the endpoint answers `503` and never calls OpenAI.
+- Settings in `backend/.env`: `OPENAI_API_KEY` and `CHAT_MODEL`, the same names the AI Backend uses. If either is empty, the endpoint answers `503` and never calls OpenAI. The cheapest current model is `gpt-6-luna`; for reasoning models, `CHAT_REASONING_EFFORT=low` keeps replies fast.
 - Request: `messages` is the conversation, oldest first, 1 to 20 messages. `role` is `user` or `assistant`, and the last message must be from the user. A user message is at most 2,000 characters; an assistant message at most 8,000.
-- Only the latest 12 messages go to OpenAI, through the Responses API with `store=False` (OpenAI does not keep the conversation) and a hashed `safety_identifier` (never the real user id). Replies are capped at 1,200 output tokens.
+- Only the latest 12 messages go to OpenAI, through the Responses API with `store=False` (OpenAI does not keep the conversation) and a hashed `safety_identifier` (never the real user id). Replies are capped at 4,000 output tokens, which includes a reasoning model's thinking.
 - The assistant's instructions are `INSTRUCTIONS` in `services/F_assistant_service.py`: it replies in the user's language, in formal Arabic or English, stays on MAEEN and contracts, says it cannot see the user's contracts, gives general information rather than legal advice, and never invents legal citations.
 - Limit: 20 questions per user per 10 minutes, kept in memory. It resets when the server restarts and is per process; move it to a shared store if the backend runs on several processes.
 - Errors: OpenAI unreachable, overloaded, or rejecting the key or model gives `503`; any other OpenAI failure or an empty reply gives `502`. The cause is logged under `maeen.assistant`, without the conversation text.
@@ -81,4 +97,4 @@ The round button in the corner of every signed-in page opens a chat with the MAE
 2. **Leaked password protection** is off: Supabase offers it only on the Pro plan (Authentication → Providers → Email). It is the only Security Advisor warning. Minimum password length was raised from 6 to 8 instead. Captcha is off on purpose: turning it on makes Supabase reject every sign-up and login until the frontend sends an hCaptcha token through the backend.
 3. **Embedding size.** `document_chunks.embedding` is `vector(1536)`; confirm the real model and dimension with the AI Backend before inserting embeddings.
 4. **Rate limiting.** Supabase rate-limits Auth per client IP, and every request comes from the backend's IP. Under real traffic, consider rate limiting in the backend itself.
-5. **Tests.** `backend/tests/` covers the contract endpoints against a fake Supabase and the assistant against a fake OpenAI client, so it never touches MAEEN or OpenAI. Run it with `cd backend && python -m pip install -r requirements-dev.txt && python -m pytest`. The auth endpoints have no tests yet.
+5. **Tests.** `backend/tests/` covers the contract endpoints against a fake Supabase, the assistant against a fake OpenAI client, and the AI Backend integration against a fake `ai_backend`, so it never touches MAEEN or OpenAI. Run it with `cd backend && python -m pip install -r requirements-dev.txt && python -m pytest`. The AI package's own tests run from the repository root with `python -m pytest ai_backend/tests`. The auth endpoints have no tests yet.

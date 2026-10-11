@@ -25,7 +25,8 @@ load_dotenv(env_path)
 logger = logging.getLogger("maeen.assistant")
 
 REQUEST_TIMEOUT_SECONDS = 25
-MAX_OUTPUT_TOKENS = 1200
+# Reasoning models (such as gpt-6-luna) count their thinking in this limit too.
+MAX_OUTPUT_TOKENS = 4000
 # Only the latest messages go to the model, which keeps each question cheap.
 HISTORY_SENT = 12
 # Each user may ask this many questions per window.
@@ -95,17 +96,21 @@ _requests_by_user: dict[str, deque] = {}
 _rate_lock = threading.Lock()
 
 
-def take_rate_slot(user_id: str) -> int:
-    """Counts a question for the user. Returns 0 if allowed, otherwise seconds to wait."""
+def take_rate_slot(key: str, limit: int = RATE_LIMIT, window: int = RATE_WINDOW_SECONDS) -> int:
+    """Counts one request for the key. Returns 0 if allowed, otherwise seconds to wait.
+
+    The assistant and contract questions share the user's id as the key, so both
+    count toward the same 20 questions. Other limits use their own key prefix.
+    """
     now = time.monotonic()
 
     with _rate_lock:
-        recent = _requests_by_user.setdefault(user_id, deque())
-        while recent and now - recent[0] >= RATE_WINDOW_SECONDS:
+        recent = _requests_by_user.setdefault(key, deque())
+        while recent and now - recent[0] >= window:
             recent.popleft()
 
-        if len(recent) >= RATE_LIMIT:
-            return max(1, int(RATE_WINDOW_SECONDS - (now - recent[0])) + 1)
+        if len(recent) >= limit:
+            return max(1, int(window - (now - recent[0])) + 1)
 
         recent.append(now)
         return 0
@@ -122,6 +127,11 @@ def generate_reply(user_id: str, messages: list[dict]) -> str:
         raise AssistantNotConfigured("OPENAI_API_KEY or CHAT_MODEL is missing")
 
     client = _openai_client()
+    options = {}
+    # Optional: how long a reasoning model thinks before answering ("low" keeps replies fast).
+    reasoning_effort = os.getenv("CHAT_REASONING_EFFORT")
+    if reasoning_effort:
+        options["reasoning"] = {"effort": reasoning_effort}
 
     try:
         response = client.responses.create(
@@ -135,6 +145,7 @@ def generate_reply(user_id: str, messages: list[dict]) -> str:
             store=False,
             safety_identifier=_safety_identifier(user_id),
             truncation="auto",
+            **options,
         )
 
     except (APIConnectionError, RateLimitError, InternalServerError) as error:

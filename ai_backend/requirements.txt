@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+PyMuPDF
+langchain-openai
+langchain-text-splitters
+python-dotenv
+pydantic
+psycopg[binary]
+supabase
+pytest
+httpx

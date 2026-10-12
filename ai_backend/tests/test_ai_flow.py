@@ -69,15 +69,31 @@ def test_filename_rejects_paths():
 
 def test_invalid_suggested_filename_does_not_discard_analysis():
     result = ContractAnalysis.model_validate({
+        "is_contract": True,
         "summary": "A service agreement",
         "parties": [],
         "obligations": [],
-        "payment_terms": {"amount": None, "currency": None, "frequency": None,
-                          "due_terms": None, "late_fees": None, "pages": []},
-        "termination": {"grounds": None, "notice_period": None, "fees": None,
-                        "surviving_obligations": None, "pages": []},
-        "renewal": {"automatic": None, "conditions": None,
-                    "notice_deadline": None, "pages": []},
+        "payment_terms": {
+            "amount": None,
+            "currency": None,
+            "frequency": None,
+            "due_terms": None,
+            "late_fees": None,
+            "pages": [],
+        },
+        "termination": {
+            "grounds": None,
+            "notice_period": None,
+            "fees": None,
+            "surviving_obligations": None,
+            "pages": [],
+        },
+        "renewal": {
+            "automatic": None,
+            "conditions": None,
+            "notice_deadline": None,
+            "pages": [],
+        },
         "important_clauses": [],
         "risks": [],
         "suggested_filename": "../unsafe.pdf",
@@ -104,8 +120,17 @@ def test_named_pdf_copy_preserves_original(tmp_path):
 
     original = tmp_path / "original.pdf"
     original.write_bytes(b"%PDF-1.4 test bytes")
-    first = save_named_pdf(original, "service_agreement.pdf", tmp_path / "processed")
-    second = save_named_pdf(original, "service_agreement.pdf", tmp_path / "processed")
+    first = save_named_pdf(
+        original,
+        "service_agreement.pdf",
+        tmp_path / "processed",
+    )
+    second = save_named_pdf(
+        original,
+        "service_agreement.pdf",
+        tmp_path / "processed",
+    )
+
     assert first != second
     assert first.read_bytes() == original.read_bytes()
     assert original.read_bytes() == b"%PDF-1.4 test bytes"

@@ -17,6 +17,8 @@ def extract_pdf_pages(pdf_source: str | bytes) -> list[dict]:
                 text = page.get_text("text", sort=True).strip()
                 if text:
                     pages.append({"page_number": page.number + 1, "text": text})
+        if not pages:
+            raise ValueError("The PDF contains no extractable text; OCR may be required")
         return pages
     except (pymupdf.FileDataError, pymupdf.EmptyFileError) as error:
         raise ValueError("The PDF is damaged or cannot be read") from error

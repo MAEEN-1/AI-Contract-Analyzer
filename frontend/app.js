@@ -23,6 +23,7 @@
     "/": "landing",
     "/signin": "signin",
     "/signup": "signup",
+    "/verify": "verify",
     "/dashboard": "dashboard",
     "/upload": "upload",
     "/contracts": "contracts",
@@ -32,11 +33,18 @@
   };
   var page = document.body.getAttribute("data-maeen-page") || routes[path] || "landing";
 
-  // The General Backend address. Change it here when the backend runs somewhere else.
-  var API_URL = "http://127.0.0.1:8000";
+  // The General Backend address. On this computer the site uses the local backend;
+  // anywhere else (such as Netlify) it uses the public address, which must be https.
+  var LOCAL_API_URL = "http://127.0.0.1:8000";
+  // A Cloudflare quick tunnel to a locally running backend; the address changes when the tunnel restarts.
+  var PUBLIC_API_URL = "https://tested-differ-homes-semi.trycloudflare.com";
+  var isLocalSite = ["localhost", "127.0.0.1", ""].indexOf(location.hostname) !== -1;
+  var API_URL = isLocalSite || !PUBLIC_API_URL ? LOCAL_API_URL : PUBLIC_API_URL;
   var SESSION_KEY = "maeen-session";
   // The assistant conversation lasts for this browser tab only.
   var ASSISTANT_KEY = "maeen-assistant";
+  // The email waiting for its activation code lasts for this browser tab only.
+  var PENDING_EMAIL_KEY = "maeen-pending-email";
   var scriptRoot = new URL(".", document.querySelector('script[src$="app.js"]').src);
 
   // When the site is opened from files (file://), each link must point to the page's index.html.
@@ -69,6 +77,20 @@
     try { localStorage.removeItem(SESSION_KEY); } catch (error) { /* Nothing was saved. */ }
     try { sessionStorage.removeItem(ASSISTANT_KEY); } catch (error) { /* Nothing was saved. */ }
   }
+  function rememberPendingEmail(email) {
+    try {
+      sessionStorage.setItem(PENDING_EMAIL_KEY, email);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+  function readPendingEmail() {
+    try { return sessionStorage.getItem(PENDING_EMAIL_KEY) || ""; } catch (error) { return ""; }
+  }
+  function forgetPendingEmail() {
+    try { sessionStorage.removeItem(PENDING_EMAIL_KEY); } catch (error) { /* Nothing was saved. */ }
+  }
   var session = readSession();
 
   // Inner pages need a signed-in user; the sign-in pages are skipped when already signed in.
@@ -77,8 +99,13 @@
     location.replace(pageUrl("/signin/"));
     return;
   }
-  if ((page === "signin" || page === "signup") && session) {
+  if ((page === "signin" || page === "signup" || page === "verify") && session) {
     location.replace(pageUrl("/dashboard/"));
+    return;
+  }
+  // The code page only makes sense right after sign-up or sign-in in this tab.
+  if (page === "verify" && !readPendingEmail()) {
+    location.replace(pageUrl("/signin/"));
     return;
   }
   document.body.classList.add("page-" + page);
@@ -468,8 +495,8 @@
     ].join("");
   }
 
-  function auth(type) {
-    var signup = type === "signup";
+  // Sign-in, sign-up and account activation share the half-navy layout.
+  function authLayout(card) {
     return [
       skipLink(),
       "<div class='auth'>",
@@ -479,23 +506,47 @@
       "<small>", t("© 2026 MAEEN. All rights reserved.", "جميع الحقوق محفوظة لمنصة معين © 2026"), "</small>",
       "</aside>",
       "<main class='auth-main' id='main-content' tabindex='-1'><div class='auth-card'>",
+      card,
+      "</div></main></div>"
+    ].join("");
+  }
+
+  function auth(type) {
+    var signup = type === "signup";
+    return authLayout([
       "<h2>", signup ? t("Create account", "إنشاء حساب جديد") : t("Sign in", "تسجيل الدخول"), "</h2>",
       "<p>", signup ? t("Please enter the required information to create your account.", "يرجى إدخال البيانات المطلوبة لإنشاء حسابك.") : t("Please enter your sign-in details.", "يرجى إدخال بيانات تسجيل الدخول."), "</p>",
       "<p class='notice notice-info' id='auth-notice' role='status' hidden></p>",
-      signup ? "<div class='signup-done' id='signup-done' hidden><p class='notice' role='status'>" + t("Your request has been received. Please open the confirmation link sent to your email, then sign in.", "تم استلام طلبك. يرجى فتح رابط التأكيد المرسل إلى بريدك الإلكتروني، ثم تسجيل الدخول.") + "</p><a class='button button-primary button-block' href='/signin/'>" + t("Sign in", "تسجيل الدخول") + "</a></div>" : "",
       "<form data-auth-form>",
-      "<div class='field'><label for='email'>", t("Email address", "البريد الإلكتروني"), "</label><input class='input' id='email' name='email' type='email' dir='ltr' autocomplete='email' placeholder='name@example.com' required></div>",
-      "<div class='field'><label for='password'>", t("Password", "كلمة المرور"), "</label><input class='input' id='password' name='password' type='password' required",
+      signup ? "<div class='field-pair'><div class='field'><label for='first-name'>" + t("First name", "الاسم الأول") + "</label><input class='input' id='first-name' name='firstName' type='text' autocomplete='given-name' maxlength='50' required></div><div class='field'><label for='last-name'>" + t("Last name", "اسم العائلة") + "</label><input class='input' id='last-name' name='lastName' type='text' autocomplete='family-name' maxlength='50' required></div></div>" : "",
+      "<div class='field'><label for='email'>", t("Email address", "البريد الإلكتروني"), "</label><input class='input' id='email' name='email' type='email' dir='ltr' autocomplete='email' placeholder='name@example.com' required data-latin-digits></div>",
+      "<div class='field'><label for='password'>", t("Password", "كلمة المرور"), "</label><input class='input' id='password' name='password' type='password' required data-latin-digits",
       signup ? " autocomplete='new-password' minlength='8' aria-describedby='password-hint'>" : " autocomplete='current-password'>",
-      signup ? "<span class='hint' id='password-hint'>" + t("Password must be at least 8 characters.", "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل.") + "</span>" : "",
+      signup ? "<span class='hint' id='password-hint'>" + t("Password must be at least 8 characters and include letters and numbers.", "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل، وتشمل حروفًا إنجليزية وأرقامًا.") + "</span>" : "",
       "</div>",
+      signup ? "<div class='field'><label for='password-confirm'>" + t("Confirm password", "تأكيد كلمة المرور") + "</label><input class='input' id='password-confirm' name='passwordConfirm' type='password' required autocomplete='new-password' minlength='8' data-latin-digits></div>" : "",
       "<p class='alert' id='auth-error' role='alert' hidden></p>",
       "<button class='button button-primary button-block' type='submit'>", signup ? t("Create account", "إنشاء الحساب") : t("Sign in", "تسجيل الدخول"), "</button>",
       "</form>",
       "<p class='auth-switch'>", signup ? t("Already have an account?", "لديك حساب؟") + " <a class='text-link' href='/signin/'>" + t("Sign in", "تسجيل الدخول") + "</a>" : t("Don't have an account?", "ليس لديك حساب؟") + " <a class='text-link' href='/signup/'>" + t("Create account", "إنشاء حساب جديد") + "</a>", "</p>",
-      "<a class='text-link auth-back' href='/'>", t("Back to home page", "العودة إلى الصفحة الرئيسية"), "</a>",
-      "</div></main></div>"
-    ].join("");
+      "<a class='text-link auth-back' href='/'>", t("Back to home page", "العودة إلى الصفحة الرئيسية"), "</a>"
+    ].join(""));
+  }
+
+  function verify() {
+    return authLayout([
+      "<h2>", t("Account activation", "تفعيل الحساب"), "</h2>",
+      "<p>", t("Please enter the verification code sent to", "يرجى إدخال رمز التحقق المرسل إلى"), " <bdi dir='ltr' id='verify-email'></bdi>.</p>",
+      "<p class='notice notice-info' id='verify-notice' role='status' hidden></p>",
+      "<form data-verify-form>",
+      "<div class='field'><label for='code'>", t("Verification code", "رمز التحقق"), "</label><input class='input input-code' id='code' name='code' type='text' inputmode='numeric' autocomplete='one-time-code' maxlength='12' dir='ltr' required aria-describedby='code-hint'>",
+      "<span class='hint' id='code-hint'>", t("The code consists of numbers only.", "يتكون الرمز من أرقام فقط."), "</span></div>",
+      "<p class='alert' id='verify-error' role='alert' hidden></p>",
+      "<button class='button button-primary button-block' type='submit'>", t("Activate account", "تفعيل الحساب"), "</button>",
+      "</form>",
+      "<p class='auth-switch'>", t("Did not receive the code?", "لم يصلك الرمز؟"), " <button class='button-link' type='button' data-resend-code>", t("Resend code", "إعادة إرسال الرمز"), "</button></p>",
+      "<a class='text-link auth-back' href='/signin/'>", t("Back to sign in", "العودة إلى تسجيل الدخول"), "</a>"
+    ].join(""));
   }
 
   function dashboard() {
@@ -617,6 +668,7 @@
       "<div class='page-head'><div><h1>", t("Account", "الحساب"), "</h1><p>", t("Your account details and sign-in settings.", "بيانات حسابك وإعدادات الدخول."), "</p></div></div>",
       "<div class='account-grid'>",
       "<section class='panel' aria-labelledby='account-info-title'><div class='panel-head'><h2 id='account-info-title'>", t("Account details", "بيانات الحساب"), "</h2></div><div class='panel-body'>",
+      "<div class='field-row'><span>", t("Name", "الاسم"), "</span><strong id='account-name' dir='auto'>—</strong></div>",
       "<div class='field-row'><span>", t("Email address", "البريد الإلكتروني"), "</span><strong id='account-email' dir='ltr'>—</strong></div>",
       "<div class='field-row'><span>", t("Account status", "حالة الحساب"), "</span><strong>", t("Signed in", "مسجّل الدخول"), "</strong></div>",
       "</div></section>",
@@ -630,6 +682,7 @@
     landing: landing,
     signin: function () { return auth("signin"); },
     signup: function () { return auth("signup"); },
+    verify: verify,
     dashboard: dashboard,
     upload: upload,
     contracts: contracts,
@@ -673,6 +726,7 @@
     landing: t("MAEEN Contract Analysis Platform", "منصة معين لتحليل العقود"),
     signin: t("Sign in | MAEEN", "تسجيل الدخول | معين"),
     signup: t("Create account | MAEEN", "إنشاء حساب جديد | معين"),
+    verify: t("Account activation | MAEEN", "تفعيل الحساب | معين"),
     dashboard: t("Home | MAEEN", "الرئيسية | معين"),
     upload: t("Upload contract | MAEEN", "رفع عقد | معين"),
     contracts: t("Contracts | MAEEN", "العقود | معين"),
@@ -781,6 +835,26 @@
     });
   });
 
+  // Arabic and Persian keyboards type their own digits (٠-٩ and ۰-۹), but emails,
+  // passwords and codes accept only 0-9, so these boxes switch them while typing.
+  function toLatinDigits(value) {
+    return value.replace(/[٠-٩۰-۹]/g, function (digit) {
+      var code = digit.charCodeAt(0);
+      return String(code - (code >= 0x06F0 ? 0x06F0 : 0x0660));
+    });
+  }
+  document.querySelectorAll("[data-latin-digits]").forEach(function (input) {
+    input.addEventListener("input", function () {
+      var value = toLatinDigits(input.value);
+      if (value === input.value) return;
+      // Each digit stays one character, so the cursor can stay where it was.
+      var start = input.selectionStart;
+      var end = input.selectionEnd;
+      input.value = value;
+      if (start !== null) input.setSelectionRange(start, end);
+    });
+  });
+
   var authForm = document.querySelector("[data-auth-form]");
   if (authForm) {
     var authError = document.getElementById("auth-error");
@@ -792,12 +866,17 @@
     }
     var authErrorMessage = function (error) {
       if (error.status === 401) return t("Sorry, the email address or password is incorrect.", "عذرًا، البريد الإلكتروني أو كلمة المرور غير صحيحة.");
-      if (error.status === 403 && page === "signin") return t("Sorry, your email address has not been confirmed. Please open the confirmation link sent to your email.", "عذرًا، لم يُؤكَّد البريد الإلكتروني بعد. يرجى فتح رابط التأكيد المرسل إلى بريدك.");
+      if (error.status === 403 && page === "signin") return t("Sorry, your account has not been activated yet.", "عذرًا، لم يُفعَّل الحساب بعد.");
       if (error.status === 422) {
+        var nameMissing = Array.isArray(error.detail) && error.detail.some(function (issue) {
+          return issue.loc.indexOf("first_name") !== -1 || issue.loc.indexOf("last_name") !== -1;
+        });
+        if (nameMissing) return t("Please enter your first name and last name.", "يرجى إدخال الاسم الأول واسم العائلة.");
         return Array.isArray(error.detail)
           ? t("Please enter a valid email address.", "يرجى إدخال بريد إلكتروني صحيح.")
-          : t("Sorry, the password does not meet the requirements. It must be at least 8 characters.", "عذرًا، كلمة المرور لا تستوفي المتطلبات. يجب أن تتكون من 8 أحرف على الأقل.");
+          : t("Sorry, the password does not meet the requirements. It must be at least 8 characters and include letters and numbers.", "عذرًا، كلمة المرور لا تستوفي المتطلبات. يجب أن تتكون من 8 أحرف على الأقل، وتشمل حروفًا إنجليزية وأرقامًا.");
       }
+      if (page === "signup" && error.status === 409) return t("An account with this email address already exists. Please sign in instead.", "يوجد حساب مسجّل بهذا البريد الإلكتروني. يرجى تسجيل الدخول بدلًا من ذلك.");
       if (page === "signup" && (error.status === 400 || error.status === 403)) return t("Sorry, the account could not be created. Please check your information and try again.", "عذرًا، تعذّر إنشاء الحساب. يرجى التحقق من البيانات والمحاولة مرة أخرى.");
       if (error.storage) return t("Sorry, your browser blocked saving the sign-in. Please allow site data and try again.", "عذرًا، منع المتصفح حفظ بيانات الدخول. يرجى السماح بحفظ بيانات المواقع والمحاولة مرة أخرى.");
       return errorMessage(error);
@@ -806,14 +885,28 @@
       event.preventDefault();
       authError.hidden = true;
       authNotice.hidden = true;
-      var credentials = { email: authForm.elements.email.value.trim(), password: authForm.elements.password.value };
+      // The password is hidden while typing, so sign-up asks for it twice.
+      if (page === "signup" && toLatinDigits(authForm.elements.password.value) !== toLatinDigits(authForm.elements.passwordConfirm.value)) {
+        authError.textContent = t("Sorry, the passwords do not match.", "عذرًا، كلمتا المرور غير متطابقتين.");
+        authError.hidden = false;
+        authForm.elements.passwordConfirm.focus();
+        return;
+      }
+      var credentials = { email: toLatinDigits(authForm.elements.email.value.trim()), password: toLatinDigits(authForm.elements.password.value) };
+      if (page === "signup") {
+        credentials.first_name = authForm.elements.firstName.value.trim();
+        credentials.last_name = authForm.elements.lastName.value.trim();
+      }
       setBusy(authSubmit, true, page === "signup" ? t("Creating account…", "جارٍ إنشاء الحساب…") : t("Signing in…", "جارٍ تسجيل الدخول…"));
       try {
         if (page === "signup") {
-          await request("POST", "/api/auth/register", { json: credentials });
-          authForm.hidden = true;
-          document.querySelector(".auth-switch").hidden = true;
-          document.getElementById("signup-done").hidden = false;
+          var signup = await request("POST", "/api/auth/register", { json: credentials });
+          if (!rememberPendingEmail(credentials.email)) {
+            var signupStorageError = new Error("Storage blocked");
+            signupStorageError.storage = true;
+            throw signupStorageError;
+          }
+          location.href = pageUrl(signup && signup.account_status === "not_activated" ? "/verify/?notactivated=1" : "/verify/");
           return;
         }
         var reply = await request("POST", "/api/auth/login", { json: credentials });
@@ -824,11 +917,89 @@
         }
         location.replace(pageUrl("/dashboard/"));
       } catch (error) {
+        // An account that is not activated yet goes to the code page instead of an error.
+        if (page === "signin" && error.status === 403 && rememberPendingEmail(credentials.email)) {
+          location.href = pageUrl("/verify/?unconfirmed=1");
+          return;
+        }
         setBusy(authSubmit, false);
         authError.textContent = authErrorMessage(error);
         authError.hidden = false;
       }
     });
+  }
+
+  var verifyForm = document.querySelector("[data-verify-form]");
+  if (verifyForm) {
+    var pendingEmail = readPendingEmail();
+    var verifyError = document.getElementById("verify-error");
+    var verifyNotice = document.getElementById("verify-notice");
+    var verifySubmit = verifyForm.querySelector("[type='submit']");
+    var resendButton = document.querySelector("[data-resend-code]");
+    document.getElementById("verify-email").textContent = pendingEmail;
+    var verifyErrorMessage = function (error) {
+      if (error.status === 400) return t("Sorry, the verification code is incorrect or has expired.", "عذرًا، رمز التحقق غير صحيح أو منتهي الصلاحية.");
+      if (error.status === 422) return t("Please enter the verification code as it appears in the email.", "يرجى إدخال رمز التحقق كما ورد في البريد الإلكتروني.");
+      if (error.storage) return t("Sorry, your browser blocked saving the sign-in. Please allow site data and try again.", "عذرًا، منع المتصفح حفظ بيانات الدخول. يرجى السماح بحفظ بيانات المواقع والمحاولة مرة أخرى.");
+      return errorMessage(error);
+    };
+    // Pasted codes may contain spaces.
+    var normalizeCode = function (value) {
+      return toLatinDigits(value.replace(/\s+/g, ""));
+    };
+    verifyForm.elements.code.addEventListener("input", function () {
+      var code = normalizeCode(this.value);
+      if (code !== this.value) this.value = code;
+    });
+    verifyForm.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      verifyError.hidden = true;
+      verifyNotice.hidden = true;
+      setBusy(verifySubmit, true, t("Activating…", "جارٍ التفعيل…"));
+      try {
+        var reply = await request("POST", "/api/auth/verify", { json: { email: pendingEmail, code: normalizeCode(verifyForm.elements.code.value) } });
+        if (!saveSession(reply.access_token, reply.expires_in || 3600)) {
+          var storageError = new Error("Storage blocked");
+          storageError.storage = true;
+          throw storageError;
+        }
+        forgetPendingEmail();
+        location.replace(pageUrl("/dashboard/"));
+      } catch (error) {
+        setBusy(verifySubmit, false);
+        verifyError.textContent = verifyErrorMessage(error);
+        verifyError.hidden = false;
+      }
+    });
+    var sendNewCode = async function (sentText) {
+      verifyError.hidden = true;
+      verifyNotice.hidden = true;
+      resendButton.disabled = true;
+      try {
+        await request("POST", "/api/auth/resend", { json: { email: pendingEmail } });
+        verifyNotice.textContent = sentText;
+        verifyNotice.hidden = false;
+      } catch (error) {
+        verifyError.textContent = error.status === 429
+          ? t("Sorry, please wait a moment before requesting a new code.", "عذرًا، يرجى الانتظار قليلًا قبل طلب رمز جديد.")
+          : errorMessage(error);
+        verifyError.hidden = false;
+      } finally {
+        resendButton.disabled = false;
+      }
+    };
+    resendButton.addEventListener("click", function () {
+      sendNewCode(t("A new code has been sent to your email.", "تم إرسال رمز جديد إلى بريدك الإلكتروني."));
+    });
+    // Signing in does not send a code, so an account that is not activated gets a new one on arrival.
+    if (takeQueryFlag("unconfirmed")) {
+      sendNewCode(t("Your account has not been activated yet. A new verification code has been sent to your email.", "لم يُفعَّل حسابك بعد. تم إرسال رمز تحقق جديد إلى بريدك الإلكتروني."));
+    }
+    // Signing up again with an account that is not activated already sent a new code.
+    if (takeQueryFlag("notactivated")) {
+      verifyNotice.textContent = t("This email address is already registered, but the account has not been activated yet. A new verification code has been sent to your email.", "هذا البريد الإلكتروني مسجّل مسبقًا، ولكن الحساب لم يُفعَّل بعد. تم إرسال رمز تحقق جديد إلى بريدك الإلكتروني.");
+      verifyNotice.hidden = false;
+    }
   }
   // ---------- Questions about a contract (AI Backend) ----------
   function contractQuestionError(error) {
@@ -1500,6 +1671,9 @@
   if (page === "account") {
     request("GET", "/api/auth/me").then(function (user) {
       document.getElementById("account-email").textContent = user.email;
+      // Accounts created before names were added have none, so the dash stays.
+      var fullName = [user.first_name, user.last_name].filter(Boolean).join(" ");
+      if (fullName) document.getElementById("account-name").textContent = fullName;
     }).catch(function (error) {
       if (!error.redirected) showToast(errorMessage(error));
     });

@@ -1,4 +1,7 @@
 import sys
+
+import json
+
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,7 +28,8 @@ def main() -> None:
 
     # Finish analysis before building the local RAG index.
     analysis = analyze_contract(pages)
-    print("Analysis:", analysis)
+    print("Analysis:")
+    print(json.dumps(analysis, ensure_ascii=False, indent=2))
     named_copy = save_named_pdf(pdf_path, analysis["suggested_filename"], ai_dir / "Data" / "processed")
     print("Saved local PDF copy:", named_copy)
 

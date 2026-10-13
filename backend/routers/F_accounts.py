@@ -9,14 +9,29 @@ from supabase_auth.errors import (
     AuthWeakPasswordError,
 )
 from dependencies.F_auth import get_current_user
-from models.F_account_data import RegisterData, LoginData
-from services.F_auth_service import register_user, login_user
+from models.F_account_data import RegisterData, LoginData, VerifyData, ResendData
+from services.F_auth_service import (
+    AccountAlreadyExists,
+    register_user,
+    login_user,
+    take_verify_attempt,
+    verify_signup_code,
+    resend_signup_code,
+)
 router = APIRouter()
 
 @router.post("/api/auth/register")
 def register(data: RegisterData):
     try:
-        register_user(str(data.email), data.password)
+        account_status = register_user(
+            str(data.email), data.password, data.first_name, data.last_name
+        )
+
+    except AccountAlreadyExists as error:
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists",
+        ) from error
 
     except AuthInvalidCredentialsError as error:
         raise HTTPException(
@@ -56,7 +71,8 @@ def register(data: RegisterData):
         "message": (
             "Registration request accepted. "
             "Check your email if confirmation is required."
-        )
+        ),
+        "account_status": account_status,
     }
 
 
@@ -124,9 +140,100 @@ def login(data: LoginData):
     }
 
 
+@router.post("/api/auth/verify")
+def verify(data: VerifyData):
+    wait_seconds = take_verify_attempt(str(data.email))
+    if wait_seconds:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Try again later",
+            headers={"Retry-After": str(wait_seconds)},
+        )
+
+    try:
+        response = verify_signup_code(str(data.email), data.code)
+
+    except (RequestError, AuthRetryableError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable. Try again later",
+        ) from error
+
+    except (AuthUnknownError, ValidationError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Invalid response from authentication service",
+        ) from error
+
+    except AuthApiError as error:
+        if error.status == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Try again later",
+            ) from error
+
+        # Supabase answers a wrong code and an expired code the same way.
+        if error.status in (400, 401, 403, 404, 422):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired code",
+            ) from error
+
+        raise HTTPException(
+            status_code=502,
+            detail="Verification could not be completed",
+        ) from error
+
+    if response.session is None:
+        raise HTTPException(
+            status_code=502,
+            detail="No session returned",
+        )
+
+    return {
+        "access_token": response.session.access_token,
+        "token_type": response.session.token_type,
+        "expires_in": response.session.expires_in,
+    }
+
+
+@router.post("/api/auth/resend")
+def resend(data: ResendData):
+    try:
+        resend_signup_code(str(data.email))
+
+    except (RequestError, AuthRetryableError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable. Try again later",
+        ) from error
+
+    except AuthApiError as error:
+        if error.status == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Please wait before requesting another code",
+            ) from error
+
+        # Other refusals are hidden so the reply never shows which emails have accounts.
+        if error.status >= 500:
+            raise HTTPException(
+                status_code=502,
+                detail="Code could not be sent",
+            ) from error
+
+    return {
+        "message": "If the account is waiting for activation, a new code was sent."
+    }
+
+
 @router.get("/api/auth/me")
 def me(user=Depends(get_current_user)):
+    metadata = user.user_metadata or {}
+
     return {
         "id": user.id,
         "email": user.email,
+        "first_name": metadata.get("first_name"),
+        "last_name": metadata.get("last_name"),
     }

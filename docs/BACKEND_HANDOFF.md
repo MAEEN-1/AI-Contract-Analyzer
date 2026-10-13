@@ -18,9 +18,11 @@ All bodies are JSON, except the contract upload, which is `multipart/form-data`.
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET` | `/` | — | `200 {"message": "AI Contract Analyzer API"}` | — |
-| `POST` | `/api/auth/register` | `{"email", "password"}` | `200 {"message": ...}` (same reply whether or not the email already exists) | `422` weak password (minimum 8 characters), `400`/`403`/`429` rejected by Supabase, `502`, `503` |
+| `POST` | `/api/auth/register` | `{"first_name", "last_name", "email", "password"}` (names 1–50 characters, saved in the Supabase user's `user_metadata`) | `200 {"message", "account_status"}`: `"new"`, or `"not_activated"` when the email already has an account that is not activated (Supabase sends it a new code) | `409` the email already has an activated account, `422` weak password (minimum 8 characters, with at least one letter and one digit), `400`/`403`/`429` rejected by Supabase, `502`, `503` |
 | `POST` | `/api/auth/login` | `{"email", "password"}` | `200 {"access_token", "token_type", "expires_in"}` | `401` wrong credentials, `403` email not confirmed, `429`, `502`, `503` |
-| `GET` | `/api/auth/me` | header `Authorization: Bearer <access_token>` | `200 {"id", "email"}` | `401` missing/invalid/expired token, `502`, `503` |
+| `POST` | `/api/auth/verify` | `{"email", "code"}` (the 6–10 digit code from the activation email) | `200 {"access_token", "token_type", "expires_in"}`: the account is activated and signed in | `400` wrong or expired code, `422`, `429` (5 attempts per email per 10 minutes, `Retry-After`), `502`, `503` |
+| `POST` | `/api/auth/resend` | `{"email"}` | `200 {"message": ...}` (same reply whether or not the email has an account waiting) | `429` asked again too soon, `502`, `503` |
+| `GET` | `/api/auth/me` | header `Authorization: Bearer <access_token>` | `200 {"id", "email", "first_name", "last_name"}` (names are `null` for accounts created before names were added) | `401` missing/invalid/expired token, `502`, `503` |
 | `POST` | `/api/contracts` | form field `file` (the PDF) | `201` contract | `400` empty file, `413` over 50 MB, `415` not a PDF, `401`, `502`, `503` |
 | `GET` | `/api/contracts` | — | `200 [contract, ...]`, the user's own, newest first | `401`, `502`, `503` |
 | `GET` | `/api/contracts/{id}` | — | `200` contract | `404` not found or not the user's, `422` id is not a UUID, `401`, `502`, `503` |
@@ -77,10 +79,13 @@ The round button in the corner of every signed-in page opens a chat with the MAE
 
 ## Auth flow for the frontend
 
-1. `register` → the user confirms the email from Supabase's message (email confirmation is on).
-2. `login` → keep `access_token`.
-3. Send `Authorization: Bearer <access_token>` on every protected call. On `401`, send the user back to login.
-4. Protect new endpoints with `Depends(get_current_user)` from `backend/dependencies/F_auth.py`; it returns the Supabase user (`user.id` is the `auth.users.id` used as `user_id` in every table).
+1. `register` → Supabase emails a numeric code (email confirmation is on).
+2. `verify` with that code → the account is activated and the reply is already a session, so the user does not sign in again. `resend` sends a new code. `login` on an account that is not activated yet answers `403`.
+3. `login` → keep `access_token`.
+4. Send `Authorization: Bearer <access_token>` on every protected call. On `401`, send the user back to login.
+5. Protect new endpoints with `Depends(get_current_user)` from `backend/dependencies/F_auth.py`; it returns the Supabase user (`user.id` is the `auth.users.id` used as `user_id` in every table).
+
+The code arrives only if the Supabase **Confirm signup** email template shows `{{ .Token }}`. The template is kept in `supabase/templates/confirm-signup.html`: paste it into Supabase → Authentication → Emails → Confirm signup, with the subject `{{ .Token }} | MAEEN verification code | رمز التحقق`. Supabase lets you edit the template only after a custom SMTP sender is set (Authentication → Emails → SMTP Settings). Without one, the built-in sender delivers only to the project's team members and allows 2 emails per hour. Sending over SMTP can take a few seconds, so the backend waits up to 30 seconds for Supabase (`REQUEST_TIMEOUT_SECONDS` in `backend/services/F_supabase_client.py`). If the backend gives up too early, Supabase drops the new account.
 
 ## Database rules for new endpoints
 

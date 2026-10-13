@@ -11,12 +11,17 @@ app.include_router(router)
 app.include_router(contracts_router)
 app.include_router(assistant_router)
 
-frontend_url = os.getenv("FRONTEND_URL")
+# One address, or several separated by commas (for example the local site and the Netlify site).
+frontend_urls = [
+    url.strip().rstrip("/")
+    for url in os.getenv("FRONTEND_URL", "").split(",")
+    if url.strip()
+]
 
-if frontend_url:
+if frontend_urls:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[frontend_url.strip().rstrip("/")],
+        allow_origins=frontend_urls,
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
     )

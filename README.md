@@ -30,10 +30,10 @@ The frontend lives in `frontend/` (plain HTML, CSS and JavaScript, no build step
 
 Run it next to the backend:
 
-1. In `backend/.env`, set `FRONTEND_URL` to the exact address the frontend will use, for example `http://localhost:3000`.
+1. In `backend/.env`, set `FRONTEND_URL` to the exact address the frontend will use, for example `http://localhost:3000`. Separate several addresses with commas, for example the local site and the Netlify site.
 2. Serve the folder: `npx serve frontend -l 3000`, then open `http://localhost:3000`.
 
-The backend address is `API_URL` at the top of `frontend/app.js` (default `http://127.0.0.1:8000`). Design decisions, the approved copy and how each page uses the API are in [docs/FRONTEND_DESIGN.md](docs/FRONTEND_DESIGN.md).
+The backend address is at the top of `frontend/app.js`: on `localhost` the site uses `http://127.0.0.1:8000`, and anywhere else (such as Netlify) it uses `PUBLIC_API_URL`. Design decisions, the approved copy and how each page uses the API are in [docs/FRONTEND_DESIGN.md](docs/FRONTEND_DESIGN.md).
 
 ## Supabase Database — MAEEN
 

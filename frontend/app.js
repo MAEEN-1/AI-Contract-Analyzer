@@ -110,7 +110,6 @@
   }
   document.body.classList.add("page-" + page);
 
-  var UNAVAILABLE = t("Sorry, this service is currently unavailable.", "عذرًا، هذه الخدمة غير متاحة حاليًا.");
   var DISCLAIMER = t("Answers are based solely on the contract text and do not constitute legal advice.", "تستند الإجابات إلى نص العقد فقط، ولا تُعد استشارة قانونية.");
   var MAX_PDF_BYTES = 50 * 1024 * 1024;
 
@@ -198,6 +197,135 @@
     var date = new Date(value);
     if (isNaN(date.getTime())) return "—";
     return (withTime ? dateTimeFormat : dateFormat).format(date);
+  }
+
+  // ---------- AI text: answers, analysis, and their sources ----------
+  // AI text becomes paragraphs, lists and bold words. It is never inserted as HTML.
+  function addInline(parent, text) {
+    String(text).split(/\*\*(.+?)\*\*/).forEach(function (part, index) {
+      if (!part) return;
+      if (index % 2) {
+        var strong = document.createElement("strong");
+        strong.textContent = part;
+        parent.appendChild(strong);
+      } else {
+        parent.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+  function formatReply(text) {
+    var fragment = document.createDocumentFragment();
+    var list = null;
+    var paragraph = null;
+    String(text).split(/\r?\n/).forEach(function (rawLine) {
+      var line = rawLine.trim();
+      if (!line) { list = null; paragraph = null; return; }
+      var bullet = line.match(/^[-*•]\s+(.*)$/);
+      var numbered = line.match(/^(\d+)[.)]\s+(.*)$/);
+      if (bullet || numbered) {
+        var tag = bullet ? "ul" : "ol";
+        if (!list || list.tagName.toLowerCase() !== tag) {
+          list = document.createElement(tag);
+          if (numbered) list.start = parseInt(numbered[1], 10);
+          fragment.appendChild(list);
+        }
+        var item = document.createElement("li");
+        addInline(item, bullet ? bullet[1] : numbered[2]);
+        list.appendChild(item);
+        paragraph = null;
+        return;
+      }
+      list = null;
+      line = line.replace(/^#{1,6}\s+/, "");
+      if (paragraph) {
+        paragraph.appendChild(document.createElement("br"));
+      } else {
+        paragraph = document.createElement("p");
+        fragment.appendChild(paragraph);
+      }
+      addInline(paragraph, line);
+    });
+    return fragment;
+  }
+
+  function pagesLabel(pages) {
+    var list = (pages || []).filter(function (page, index, all) {
+      return typeof page === "number" && page > 0 && all.indexOf(page) === index;
+    }).sort(function (a, b) { return a - b; });
+    if (!list.length) return "";
+    return list.length === 1 ? t("Page ", "صفحة ") + list[0] : t("Pages ", "الصفحات ") + list.join(t(", ", "، "));
+  }
+  function pageRef(pages) {
+    var label = pagesLabel(pages);
+    if (!label) return null;
+    var ref = document.createElement("span");
+    ref.className = "page-ref";
+    ref.textContent = label;
+    return ref;
+  }
+  function cleanSources(sources) {
+    return (Array.isArray(sources) ? sources : []).filter(function (source) {
+      return source && typeof source.page === "number" && typeof source.text === "string" && source.text.trim();
+    });
+  }
+  // Each source is the contract passage an answer is based on, with its page.
+  function sourcesBlock(sources) {
+    var block = document.createElement("div");
+    block.className = "sources";
+    var heading = document.createElement("span");
+    heading.className = "sources-title";
+    heading.textContent = t("Sources in the contract", "المصادر في العقد");
+    block.appendChild(heading);
+    var list = document.createElement("ul");
+    sources.forEach(function (source) {
+      var item = document.createElement("li");
+      item.appendChild(pageRef([source.page]));
+      var quote = document.createElement("q");
+      quote.setAttribute("dir", "auto");
+      var text = source.text.replace(/\s+/g, " ").trim();
+      quote.textContent = text.length > 280 ? text.slice(0, 280) + "…" : text;
+      item.appendChild(quote);
+      list.appendChild(item);
+    });
+    block.appendChild(list);
+    return block;
+  }
+  function answerBubble(answer, sources) {
+    var bubble = document.createElement("div");
+    bubble.className = "bubble bubble-assistant";
+    bubble.setAttribute("dir", "auto");
+    bubble.appendChild(formatReply(answer));
+    var shown = cleanSources(sources);
+    if (shown.length) bubble.appendChild(sourcesBlock(shown));
+    return bubble;
+  }
+  function questionBubble(text, caption) {
+    var bubble = document.createElement("div");
+    bubble.className = "bubble bubble-user";
+    bubble.setAttribute("dir", "auto");
+    if (caption) {
+      var note = document.createElement("span");
+      note.className = "bubble-caption";
+      note.textContent = caption;
+      bubble.appendChild(note);
+    }
+    bubble.appendChild(document.createTextNode(text));
+    return bubble;
+  }
+  function typingIndicator(label) {
+    var typing = document.createElement("div");
+    typing.className = "bubble bubble-assistant assistant-typing";
+    typing.innerHTML = "<span class='sr-only'></span><i></i><i></i><i></i>";
+    typing.firstChild.textContent = label;
+    return typing;
+  }
+  function errorBubble(message) {
+    var bubble = document.createElement("div");
+    bubble.className = "bubble bubble-error";
+    var text = document.createElement("span");
+    text.textContent = message;
+    bubble.appendChild(text);
+    return bubble;
   }
 
   function contractRow(contract) {
@@ -301,6 +429,8 @@
       "<button class='icon-button' type='button' data-assistant-new aria-label='", t("New conversation", "محادثة جديدة"), "' title='", t("New conversation", "محادثة جديدة"), "'>", icon("refresh"), "</button>",
       "<button class='icon-button' type='button' data-assistant-close aria-label='", t("Close assistant", "إغلاق المساعد"), "' title='", t("Close", "إغلاق"), "'>", icon("close"), "</button>",
       "</div></header>",
+      "<div class='assistant-scope'><label for='assistant-contract'>", t("Ask about", "السؤال عن"), "</label>",
+      "<select class='input' id='assistant-contract'><option value=''>", t("General questions", "أسئلة عامة"), "</option></select></div>",
       "<div class='assistant-log' id='assistant-log' role='log' aria-live='polite' aria-label='", t("Conversation", "المحادثة"), "'></div>",
       "<form class='assistant-compose' id='assistant-form'>",
       "<label class='sr-only' for='assistant-input'>", t("Type your question", "اكتب سؤالك"), "</label>",
@@ -487,20 +617,22 @@
       "<div class='page-head'><div><h1>", t("Contract details", "تفاصيل العقد"), "</h1></div><span id='detail-status'><span class='status'>", t("No contract selected", "لم يُحدَّد عقد"), "</span></span></div>",
       "<p class='alert detail-error' id='detail-error' role='alert' hidden></p>",
       "<div class='panel meta'><div><span>", t("File name", "اسم الملف"), "</span><strong id='detail-file'>—</strong></div><div><span>", t("Status", "الحالة"), "</span><strong id='detail-state'>—</strong></div><div><span>", t("Upload date", "تاريخ الرفع"), "</span><strong id='detail-date'>—</strong></div></div>",
+      "<div class='analysis-state' id='analysis-state' role='status' hidden></div>",
       "<section class='panel'><div class='panel-tabs'><div class='tabs' role='tablist' aria-label='", t("Contract sections", "أقسام العقد"), "'>",
       tab("overview", t("Overview", "نظرة عامة"), true), tab("analysis", t("Analysis results", "نتائج التحليل"), false), tab("ask", t("Inquiries", "الاستفسارات"), false),
       "</div></div>",
-      "<div class='tab-panel' role='tabpanel' id='panel-overview' aria-labelledby='tab-overview' data-tab-panel='overview'><div class='detail-grid'>",
+      "<div class='tab-panel' role='tabpanel' id='panel-overview' aria-labelledby='tab-overview' data-tab-panel='overview'><div id='overview-body'><div class='detail-grid'>",
       "<div class='detail-box'><h3>", t("Contract summary", "ملخص العقد"), "</h3><p>", t("The summary will appear once the contract analysis is complete.", "يظهر الملخص بعد اكتمال تحليل العقد."), "</p></div>",
       "<div class='detail-box'><h3>", t("Key information", "المعلومات الأساسية"), "</h3><p>", t("Key information will appear once the contract analysis is complete.", "تظهر المعلومات الأساسية بعد اكتمال تحليل العقد."), "</p></div>",
-      "</div></div>",
-      "<div class='tab-panel' role='tabpanel' id='panel-analysis' aria-labelledby='tab-analysis' data-tab-panel='analysis' hidden>",
+      "</div></div></div>",
+      "<div class='tab-panel' role='tabpanel' id='panel-analysis' aria-labelledby='tab-analysis' data-tab-panel='analysis' hidden><div id='analysis-body'>",
       emptyState("summary", t("No analysis results", "لا توجد نتائج تحليل"), t("Analysis results will appear here, each linked to its source.", "تظهر هنا نتائج التحليل مع الإحالة إلى مصدر كل نتيجة.")),
       "<div class='tags' role='list' aria-label='", t("Analysis sections", "أقسام التحليل"), "'>", tags, "</div>",
-      "</div>",
+      "</div></div>",
       "<div class='tab-panel' role='tabpanel' id='panel-ask' aria-labelledby='tab-ask' data-tab-panel='ask' hidden>",
-      "<h2 class='section-title'>", t("Ask about the contract", "الاستفسار عن العقد"), "</h2><p class='muted'>", t("Each answer shows the page, clause, and text it is based on.", "تظهر الإجابة مع رقم الصفحة والبند والنص الذي تستند إليه."), "</p>",
-      "<form class='qa-form' data-qa-form><label class='sr-only' for='detail-question'>", t("Type your inquiry", "اكتب استفسارك"), "</label><textarea class='input' id='detail-question' rows='3' placeholder='", t("Example: What are the termination conditions?", "مثال: ما شروط إنهاء العقد؟"), "'></textarea><button class='button button-primary' type='submit'>", t("Submit inquiry", "إرسال الاستفسار"), "</button></form>",
+      "<h2 class='section-title'>", t("Ask about the contract", "الاستفسار عن العقد"), "</h2><p class='muted'>", t("Each answer shows the page and the text it is based on.", "تظهر الإجابة مع رقم الصفحة والنص الذي تستند إليه."), "</p>",
+      "<div class='thread' id='detail-thread' role='log' aria-live='polite' aria-label='", t("Inquiry conversation", "محادثة الاستفسار"), "' hidden></div>",
+      "<form class='qa-form' id='detail-ask-form'><label class='sr-only' for='detail-question'>", t("Type your inquiry", "اكتب استفسارك"), "</label><textarea class='input' id='detail-question' rows='3' maxlength='2000' dir='auto' placeholder='", t("Example: What are the termination conditions?", "مثال: ما شروط إنهاء العقد؟"), "'></textarea><button class='button button-primary' type='submit'>", t("Submit inquiry", "إرسال الاستفسار"), "</button></form>",
       "<p class='disclaimer'>", DISCLAIMER, "</p>",
       "</div>",
       "</section>",
@@ -515,7 +647,7 @@
       "<section class='panel ask' aria-label='", t("Ask about a contract", "الاستفسار عن عقد"), "'>",
       "<aside class='ask-aside'>",
       "<div><label class='aside-label' for='ask-contract'>", t("Selected contract", "العقد المحدد"), "</label><select class='input' id='ask-contract'><option value=''>", t("Select a contract", "اختيار عقد"), "</option></select><p class='aside-note' id='ask-contract-note'>", t("Loading contracts…", "جارٍ تحميل العقود…"), "</p></div>",
-      "<div class='history'><span class='aside-label'>", t("Inquiry history", "سجل الاستفسارات"), "</span><p class='aside-note'>", t("No previous inquiries.", "لا توجد استفسارات سابقة."), "</p></div>",
+      "<div class='history'><span class='aside-label'>", t("Inquiry history", "سجل الاستفسارات"), "</span><p class='aside-note' id='ask-history-note'>", t("No previous inquiries.", "لا توجد استفسارات سابقة."), "</p></div>",
       "<a class='button button-secondary' href='/upload/'>", t("Upload contract", "رفع عقد"), "</a>",
       "</aside>",
       "<div class='ask-main'>",
@@ -523,8 +655,8 @@
       "<div class='ask-body' role='log' aria-label='", t("Inquiry conversation", "محادثة الاستفسار"), "'><div class='ask-welcome'><span class='empty-icon'>", icon("ask"), "</span>",
       "<h3>", t("Ask about a contract", "الاستفسار عن عقد"), "</h3><p>", t("Select an analyzed contract, then type your inquiry. Each answer shows the page, clause, and text it is based on.", "اختر عقدًا مكتمل التحليل، ثم اكتب استفسارك. تظهر كل إجابة مع رقم الصفحة والبند والنص الذي تستند إليه."), "</p>",
       "<div class='suggestions' role='group' aria-label='", t("Example inquiries", "أمثلة على الاستفسارات"), "'><button class='suggestion' type='button'>", t("What are my obligations under the contract?", "ما التزاماتي في العقد؟"), "</button><button class='suggestion' type='button'>", t("What are the termination conditions?", "ما شروط إنهاء العقد؟"), "</button><button class='suggestion' type='button'>", t("What are the renewal terms?", "ما شروط التجديد؟"), "</button></div>",
-      "</div></div>",
-      "<div class='composer-wrap'><form class='composer' data-qa-form><label class='sr-only' for='contract-question'>", t("Type your inquiry", "اكتب استفسارك"), "</label><textarea class='input' id='contract-question' rows='1' placeholder='", t("Type your inquiry here", "اكتب استفسارك هنا"), "'></textarea><button class='button button-primary' type='submit'>", t("Submit inquiry", "إرسال الاستفسار"), "</button></form>",
+      "</div><div class='thread' id='ask-thread' hidden></div></div>",
+      "<div class='composer-wrap'><form class='composer' id='ask-form'><label class='sr-only' for='contract-question'>", t("Type your inquiry", "اكتب استفسارك"), "</label><textarea class='input' id='contract-question' rows='1' maxlength='2000' dir='auto' placeholder='", t("Type your inquiry here", "اكتب استفسارك هنا"), "'></textarea><button class='button button-primary' type='submit'>", t("Submit inquiry", "إرسال الاستفسار"), "</button></form>",
       "<p class='disclaimer'>", DISCLAIMER, "</p></div>",
       "</div></section>"
     ].join("");
@@ -869,18 +1001,54 @@
       verifyNotice.hidden = false;
     }
   }
-  document.querySelectorAll("[data-qa-form]").forEach(function (qaForm) {
-    qaForm.addEventListener("submit", function (event) {
-      event.preventDefault();
-      var question = qaForm.querySelector("textarea");
-      if (!question.value.trim()) {
-        question.focus();
-        showToast(t("Please type your inquiry first.", "يرجى كتابة الاستفسار أولًا."));
-        return;
-      }
-      showToast(UNAVAILABLE);
+  // ---------- Questions about a contract (AI Backend) ----------
+  function contractQuestionError(error) {
+    if (error.status === 409) return t("Inquiries become available once the contract analysis is complete.", "تتاح الاستفسارات بعد اكتمال تحليل العقد.");
+    if (error.status === 404) return t("Sorry, this contract does not exist or is no longer available.", "عذرًا، هذا العقد غير موجود أو لم يعد متاحًا.");
+    if (error.status === 503) return t("Sorry, the analysis service is currently unavailable. Please try again later.", "عذرًا، خدمة التحليل غير متاحة حاليًا. يرجى المحاولة لاحقًا.");
+    return errorMessage(error);
+  }
+  function showInThread(thread, element) {
+    thread.hidden = false;
+    thread.appendChild(element);
+    element.scrollIntoView({ block: "nearest" });
+  }
+  function renderChatHistory(thread, entries) {
+    thread.textContent = "";
+    entries.forEach(function (entry) {
+      thread.appendChild(questionBubble(entry.question));
+      thread.appendChild(answerBubble(entry.answer, entry.sources));
     });
-  });
+    thread.hidden = entries.length === 0;
+  }
+  // Sends one question and shows the answer, with its sources, in the thread.
+  function sendContractQuestion(contractId, question, thread, button, input) {
+    showInThread(thread, questionBubble(question));
+    var typing = typingIndicator(t("Preparing the answer", "جارٍ إعداد الإجابة"));
+    showInThread(thread, typing);
+    input.value = "";
+    setBusy(button, true, t("Sending…", "جارٍ الإرسال…"));
+    return request("POST", "/api/contracts/" + encodeURIComponent(contractId) + "/chat", { json: { question: question }, timeout: 90000 }).then(function (data) {
+      typing.remove();
+      showInThread(thread, answerBubble(data.answer, data.sources));
+    }).catch(function (error) {
+      typing.remove();
+      if (error.redirected) return;
+      showInThread(thread, errorBubble(contractQuestionError(error)));
+      input.value = question;
+    }).then(function () {
+      setBusy(button, false);
+    });
+  }
+  function readQuestion(input) {
+    var question = input.value.trim().slice(0, 2000);
+    if (!question) {
+      input.focus();
+      showToast(t("Please type your inquiry first.", "يرجى كتابة الاستفسار أولًا."));
+    }
+    return question;
+  }
+
   document.querySelectorAll(".suggestion").forEach(function (button) {
     button.addEventListener("click", function () {
       var question = document.getElementById("contract-question");
@@ -1142,6 +1310,13 @@
           }
         });
         rememberRecent(contract.id);
+        // Start the analysis right away. If this fails, the contract page offers to start it.
+        uploadSubmit.textContent = t("Starting analysis…", "جارٍ بدء التحليل…");
+        try {
+          await request("POST", "/api/contracts/" + encodeURIComponent(contract.id) + "/analyze");
+        } catch (error) {
+          if (error.redirected) return;
+        }
         location.href = pageUrl("/contracts/details/?id=" + encodeURIComponent(contract.id) + "&uploaded=1");
       } catch (error) {
         if (error.redirected) return;
@@ -1173,24 +1348,227 @@
     var detailStatus = document.getElementById("detail-status");
     var detailError = document.getElementById("detail-error");
     var deleteButton = document.getElementById("delete-contract");
-    if (takeQueryFlag("uploaded")) showToast(t("The contract has been uploaded.", "تم رفع العقد بنجاح."));
-    if (contractId) {
-      detailStatus.innerHTML = "<span class='status'>" + t("Loading…", "جارٍ التحميل…") + "</span>";
-      request("GET", "/api/contracts/" + encodeURIComponent(contractId)).then(function (contract) {
-        rememberRecent(contract.id);
-        detailStatus.innerHTML = statusBadge(contract.status);
-        // <bdi> keeps an Arabic name inside an English page (or the reverse) in the right order.
-        document.getElementById("detail-file").innerHTML = "<bdi>" + escapeHtml(contract.file_name) + "</bdi>";
-        document.getElementById("detail-state").textContent = statusInfo(contract.status).label;
-        document.getElementById("detail-date").textContent = formatDate(contract.created_at, true);
-        document.getElementById("detail-actions").hidden = false;
+    var analysisState = document.getElementById("analysis-state");
+    var detailThread = document.getElementById("detail-thread");
+    var detailForm = document.getElementById("detail-ask-form");
+    var detailQuestion = document.getElementById("detail-question");
+    var contractUrl = "/api/contracts/" + encodeURIComponent(contractId || "");
+    var currentStatus = null;
+    var analysisShown = false;
+    var pollTimer = null;
+    var pollSince = 0;
+
+    function showStatus(status) {
+      currentStatus = status;
+      detailStatus.innerHTML = statusBadge(status);
+      document.getElementById("detail-state").textContent = statusInfo(status).label;
+      analysisState.textContent = "";
+      analysisState.className = "analysis-state";
+      analysisState.hidden = status === "completed";
+      if (status === "completed") return;
+
+      var text = document.createElement("p");
+      if (status === "processing") {
+        analysisState.classList.add("is-processing");
+        var spinner = document.createElement("span");
+        spinner.className = "spinner";
+        spinner.setAttribute("aria-hidden", "true");
+        analysisState.appendChild(spinner);
+        text.textContent = t("The contract is being analyzed. This usually takes a minute or two, and this page updates on its own.", "جارٍ تحليل العقد. يستغرق ذلك عادةً دقيقة أو دقيقتين، وتتحدّث هذه الصفحة تلقائيًا.");
+        analysisState.appendChild(text);
+        return;
+      }
+      text.textContent = status === "failed"
+        ? t("Sorry, the analysis could not be completed. Please try again.", "عذرًا، تعذّر إكمال التحليل. يرجى المحاولة مرة أخرى.")
+        : t("This contract has not been analyzed yet.", "لم يُحلَّل هذا العقد بعد.");
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "button button-primary";
+      button.textContent = status === "failed" ? t("Retry analysis", "إعادة التحليل") : t("Analyze contract", "تحليل العقد");
+      button.addEventListener("click", function () { startAnalysis(button); });
+      analysisState.appendChild(text);
+      analysisState.appendChild(button);
+    }
+
+    function startAnalysis(button) {
+      setBusy(button, true, t("Starting…", "جارٍ البدء…"));
+      request("POST", contractUrl + "/analyze").then(function () {
+        showStatus("processing");
+        waitForAnalysis();
       }).catch(function (error) {
         if (error.redirected) return;
+        setBusy(button, false);
+        // 409: it is already running, so show the current state.
+        if (error.status === 409) { loadContract(); return; }
+        showToast(contractQuestionError(error));
+      });
+    }
+
+    // While the analysis runs, the status is checked every 5 seconds, for up to 15 minutes.
+    function waitForAnalysis() {
+      clearTimeout(pollTimer);
+      if (!pollSince) pollSince = Date.now();
+      if (Date.now() - pollSince > 15 * 60 * 1000) return;
+      pollTimer = setTimeout(loadContract, 5000);
+    }
+
+    function factRow(list, label, value, pages) {
+      if (value === null || value === undefined || value === "") return;
+      var row = document.createElement("div");
+      var term = document.createElement("dt");
+      term.textContent = label;
+      var detail = document.createElement("dd");
+      detail.setAttribute("dir", "auto");
+      detail.textContent = value;
+      var ref = pageRef(pages);
+      if (ref) detail.appendChild(ref);
+      row.appendChild(term);
+      row.appendChild(detail);
+      list.appendChild(row);
+    }
+    function citedSection(title, items, extraClass) {
+      var section = document.createElement("section");
+      section.className = "analysis-section";
+      var heading = document.createElement("h3");
+      heading.textContent = title;
+      section.appendChild(heading);
+      var shown = (items || []).filter(function (item) { return item && typeof item.text === "string" && item.text.trim(); });
+      if (!shown.length) {
+        var none = document.createElement("p");
+        none.className = "muted";
+        none.textContent = t("Nothing was found in the contract.", "لم يُعثر على شيء في العقد.");
+        section.appendChild(none);
+        return section;
+      }
+      var list = document.createElement("ul");
+      list.className = "cited-list" + (extraClass ? " " + extraClass : "");
+      shown.forEach(function (item) {
+        var entry = document.createElement("li");
+        var text = document.createElement("span");
+        text.setAttribute("dir", "auto");
+        text.textContent = item.text;
+        entry.appendChild(text);
+        var ref = pageRef(item.pages);
+        if (ref) entry.appendChild(ref);
+        list.appendChild(entry);
+      });
+      section.appendChild(list);
+      return section;
+    }
+    function joined(values) {
+      return values.filter(function (value) { return typeof value === "string" && value.trim(); }).join(t(", ", "، "));
+    }
+    function renderAnalysis(analysis) {
+      analysisShown = true;
+      var payment = analysis.payment_terms || {};
+      var termination = analysis.termination || {};
+      var renewal = analysis.renewal || {};
+
+      var grid = document.createElement("div");
+      grid.className = "detail-grid";
+      var summaryBox = document.createElement("div");
+      summaryBox.className = "detail-box";
+      var summaryTitle = document.createElement("h3");
+      summaryTitle.textContent = t("Contract summary", "ملخص العقد");
+      var summaryText = document.createElement("div");
+      summaryText.className = "analysis-text";
+      summaryText.setAttribute("dir", "auto");
+      summaryText.appendChild(formatReply(analysis.summary || "—"));
+      summaryBox.appendChild(summaryTitle);
+      summaryBox.appendChild(summaryText);
+
+      var factsBox = document.createElement("div");
+      factsBox.className = "detail-box";
+      var factsTitle = document.createElement("h3");
+      factsTitle.textContent = t("Key information", "المعلومات الأساسية");
+      var facts = document.createElement("dl");
+      facts.className = "facts";
+      var parties = analysis.parties || [];
+      factRow(facts, t("Parties", "الأطراف"), joined(parties.map(function (party) { return party.text; })), [].concat.apply([], parties.map(function (party) { return party.pages || []; })));
+      factRow(facts, t("Amount", "المبلغ"), joined([payment.amount, payment.currency]), payment.pages);
+      factRow(facts, t("Payment frequency", "دورية السداد"), payment.frequency, payment.pages);
+      factRow(facts, t("Due terms", "مواعيد الاستحقاق"), payment.due_terms, payment.pages);
+      factRow(facts, t("Late fees", "غرامات التأخير"), payment.late_fees, payment.pages);
+      factRow(facts, t("Notice period", "مدة الإشعار"), termination.notice_period, termination.pages);
+      factRow(facts, t("Termination grounds", "أسباب الإنهاء"), termination.grounds, termination.pages);
+      factRow(facts, t("Termination fees", "رسوم الإنهاء"), termination.fees, termination.pages);
+      factRow(facts, t("Automatic renewal", "التجديد التلقائي"), renewal.automatic === true ? t("Yes", "نعم") : renewal.automatic === false ? t("No", "لا") : null, renewal.pages);
+      factRow(facts, t("Renewal conditions", "شروط التجديد"), renewal.conditions, renewal.pages);
+      factRow(facts, t("Renewal notice deadline", "موعد إشعار التجديد"), renewal.notice_deadline, renewal.pages);
+      factsBox.appendChild(factsTitle);
+      if (facts.children.length) {
+        factsBox.appendChild(facts);
+      } else {
+        var noFacts = document.createElement("p");
+        noFacts.textContent = t("No key information was found in the contract.", "لم يُعثر على معلومات أساسية في العقد.");
+        factsBox.appendChild(noFacts);
+      }
+      grid.appendChild(summaryBox);
+      grid.appendChild(factsBox);
+      var overviewBody = document.getElementById("overview-body");
+      overviewBody.textContent = "";
+      overviewBody.appendChild(grid);
+
+      var analysisBody = document.getElementById("analysis-body");
+      analysisBody.textContent = "";
+      var note = document.createElement("p");
+      note.className = "notice notice-info";
+      note.textContent = t("Each finding shows the page it comes from. Risks are possible concerns to review, not legal advice.", "تظهر مع كل نتيجة الصفحة التي وردت فيها. والمخاطر ملاحظات محتملة للمراجعة، وليست استشارة قانونية.");
+      analysisBody.appendChild(note);
+      analysisBody.appendChild(citedSection(t("Risks", "المخاطر"), analysis.risks, "risk-list"));
+      analysisBody.appendChild(citedSection(t("Obligations", "الالتزامات"), analysis.obligations));
+      analysisBody.appendChild(citedSection(t("Material clauses", "البنود الجوهرية"), analysis.important_clauses));
+    }
+
+    function loadAnalysis() {
+      request("GET", contractUrl + "/analysis").then(function (data) {
+        renderAnalysis(data.analysis || {});
+      }).catch(function (error) {
+        if (!error.redirected && error.status !== 404) showToast(errorMessage(error));
+      });
+      request("GET", contractUrl + "/chat").then(function (entries) {
+        renderChatHistory(detailThread, entries || []);
+      }).catch(function () { /* The history is optional; new questions still work. */ });
+    }
+
+    function showContract(contract) {
+      rememberRecent(contract.id);
+      // <bdi> keeps an Arabic name inside an English page (or the reverse) in the right order.
+      document.getElementById("detail-file").innerHTML = "<bdi>" + escapeHtml(contract.file_name) + "</bdi>";
+      document.getElementById("detail-date").textContent = formatDate(contract.created_at, true);
+      document.getElementById("detail-actions").hidden = false;
+      showStatus(contract.status);
+      if (contract.status === "processing") waitForAnalysis();
+      if (contract.status === "completed" && !analysisShown) loadAnalysis();
+    }
+
+    function loadContract() {
+      return request("GET", contractUrl).then(showContract).catch(function (error) {
+        if (error.redirected) return;
+        // While waiting for the analysis, a passing network error just means "check again later".
+        if (currentStatus === "processing" && error.status !== 404) { waitForAnalysis(); return; }
         var missing = error.status === 404 || error.status === 422;
         detailStatus.innerHTML = "<span class='status'>" + (missing ? t("Contract not found", "العقد غير موجود") : "—") + "</span>";
         detailError.textContent = missing ? t("Sorry, this contract does not exist or is no longer available.", "عذرًا، هذا العقد غير موجود أو لم يعد متاحًا.") : errorMessage(error);
         detailError.hidden = false;
       });
+    }
+
+    detailForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!contractId) return;
+      if (currentStatus !== "completed") {
+        showToast(t("Inquiries become available once the contract analysis is complete.", "تتاح الاستفسارات بعد اكتمال تحليل العقد."));
+        return;
+      }
+      var question = readQuestion(detailQuestion);
+      if (question) sendContractQuestion(contractId, question, detailThread, detailForm.querySelector("[type='submit']"), detailQuestion);
+    });
+
+    if (takeQueryFlag("uploaded")) showToast(t("The contract has been uploaded.", "تم رفع العقد بنجاح."));
+    if (contractId) {
+      detailStatus.innerHTML = "<span class='status'>" + t("Loading…", "جارٍ التحميل…") + "</span>";
+      loadContract();
     }
     deleteButton.addEventListener("click", async function () {
       if (!window.confirm(t("Delete this contract? The file and its analysis results will be permanently deleted.", "هل تريد حذف هذا العقد؟ سيُحذف الملف ونتائج تحليله نهائيًا."))) return;
@@ -1215,6 +1593,41 @@
     var askContract = document.getElementById("ask-contract");
     var askNote = document.getElementById("ask-contract-note");
     var askSelected = document.getElementById("ask-selected");
+    var askThread = document.getElementById("ask-thread");
+    var askWelcome = document.querySelector(".ask-welcome");
+    var askBody = document.querySelector(".ask-body");
+    var askForm = document.getElementById("ask-form");
+    var askInput = document.getElementById("contract-question");
+    var askHistoryNote = document.getElementById("ask-history-note");
+    var wantedContract = new URLSearchParams(location.search).get("id");
+
+    // Shows the welcome until the selected contract has a conversation.
+    function showThread(hasMessages) {
+      askWelcome.hidden = hasMessages;
+      askBody.classList.toggle("has-thread", hasMessages);
+    }
+    function selectAskContract() {
+      var id = askContract.value;
+      askSelected.innerHTML = id ? "<bdi>" + escapeHtml(askContract.options[askContract.selectedIndex].textContent) + "</bdi>" : t("Please select a contract", "يرجى اختيار عقد");
+      askThread.textContent = "";
+      askThread.hidden = true;
+      showThread(false);
+      askHistoryNote.textContent = t("No previous inquiries.", "لا توجد استفسارات سابقة.");
+      if (!id) return;
+      request("GET", "/api/contracts/" + encodeURIComponent(id) + "/chat").then(function (entries) {
+        if (askContract.value !== id) return;
+        entries = entries || [];
+        renderChatHistory(askThread, entries);
+        showThread(entries.length > 0);
+        if (entries.length) {
+          askHistoryNote.textContent = t(entries.length + " previous inquiries", "عدد الاستفسارات السابقة: " + entries.length);
+          askThread.lastChild.scrollIntoView({ block: "nearest" });
+        }
+      }).catch(function (error) {
+        if (!error.redirected) showToast(errorMessage(error));
+      });
+    }
+
     loadContracts().then(function (list) {
       // Only contracts whose analysis is complete can be asked about.
       var ready = list.filter(function (contract) { return contract.status === "completed"; });
@@ -1226,11 +1639,32 @@
       });
       askNote.textContent = t("No analyzed contracts available.", "لا توجد عقود مكتملة التحليل.");
       askNote.hidden = ready.length > 0;
+      // ?id= opens the page on that contract, for example from the contract page.
+      if (wantedContract && ready.some(function (contract) { return contract.id === wantedContract; })) {
+        askContract.value = wantedContract;
+        selectAskContract();
+      }
     }).catch(function (error) {
       if (!error.redirected) askNote.textContent = errorMessage(error);
     });
-    askContract.addEventListener("change", function () {
-      askSelected.innerHTML = askContract.value ? "<bdi>" + escapeHtml(askContract.options[askContract.selectedIndex].textContent) + "</bdi>" : t("Please select a contract", "يرجى اختيار عقد");
+    askContract.addEventListener("change", selectAskContract);
+
+    askForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!askContract.value) {
+        askContract.focus();
+        showToast(t("Please select a contract first.", "يرجى اختيار عقد أولًا."));
+        return;
+      }
+      var question = readQuestion(askInput);
+      if (!question) return;
+      showThread(true);
+      sendContractQuestion(askContract.value, question, askThread, askForm.querySelector("[type='submit']"), askInput);
+    });
+    askInput.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      askForm.requestSubmit();
     });
   }
 
@@ -1246,6 +1680,8 @@
   }
 
   // ---------- MAEEN Assistant ----------
+  // General questions go to /api/assistant/chat. With a contract chosen, the question goes
+  // to the AI Backend through /api/contracts/{id}/chat and the answer shows its sources.
   var assistantFab = document.getElementById("assistant-fab");
   if (assistantFab) {
     var assistantPanel = document.getElementById("assistant-panel");
@@ -1253,14 +1689,16 @@
     var assistantForm = document.getElementById("assistant-form");
     var assistantInput = document.getElementById("assistant-input");
     var assistantSend = assistantForm.querySelector(".assistant-send");
+    var assistantContract = document.getElementById("assistant-contract");
     var wideScreen = window.matchMedia("(min-width: 801px)");
     // The backend reads the latest 12 messages; the tab keeps up to 40.
     var ASSISTANT_SENT = 12;
     var ASSISTANT_KEPT = 40;
-    var assistantState = { messages: [], open: false };
+    var assistantState = { messages: [], open: false, scope: "" };
     var assistantBusy = false;
+    var contractsLoaded = false;
     var typingBubble = null;
-    var errorBubble = null;
+    var retryBubble = null;
 
     try {
       var savedChat = JSON.parse(sessionStorage.getItem(ASSISTANT_KEY) || "null");
@@ -1269,6 +1707,7 @@
           return message && (message.role === "user" || message.role === "assistant") && typeof message.content === "string" && message.content.trim();
         });
         assistantState.open = savedChat.open === true;
+        assistantState.scope = typeof savedChat.scope === "string" ? savedChat.scope : "";
       }
     } catch (error) { /* Start with an empty conversation. */ }
 
@@ -1277,63 +1716,13 @@
       try { sessionStorage.setItem(ASSISTANT_KEY, JSON.stringify(assistantState)); } catch (error) { /* The conversation lasts for this page only. */ }
     }
 
-    // Replies become paragraphs, lists and bold words. The reply is never inserted as HTML.
-    function addInline(parent, text) {
-      text.split(/\*\*(.+?)\*\*/).forEach(function (part, index) {
-        if (!part) return;
-        if (index % 2) {
-          var strong = document.createElement("strong");
-          strong.textContent = part;
-          parent.appendChild(strong);
-        } else {
-          parent.appendChild(document.createTextNode(part));
-        }
-      });
-    }
-    function formatReply(text) {
-      var fragment = document.createDocumentFragment();
-      var list = null;
-      var paragraph = null;
-      text.split(/\r?\n/).forEach(function (rawLine) {
-        var line = rawLine.trim();
-        if (!line) { list = null; paragraph = null; return; }
-        var bullet = line.match(/^[-*•]\s+(.*)$/);
-        var numbered = line.match(/^(\d+)[.)]\s+(.*)$/);
-        if (bullet || numbered) {
-          var tag = bullet ? "ul" : "ol";
-          if (!list || list.tagName.toLowerCase() !== tag) {
-            list = document.createElement(tag);
-            if (numbered) list.start = parseInt(numbered[1], 10);
-            fragment.appendChild(list);
-          }
-          var item = document.createElement("li");
-          addInline(item, bullet ? bullet[1] : numbered[2]);
-          list.appendChild(item);
-          paragraph = null;
-          return;
-        }
-        list = null;
-        line = line.replace(/^#{1,6}\s+/, "");
-        if (paragraph) {
-          paragraph.appendChild(document.createElement("br"));
-        } else {
-          paragraph = document.createElement("p");
-          fragment.appendChild(paragraph);
-        }
-        addInline(paragraph, line);
-      });
-      return fragment;
-    }
-
     function scrollAssistant() {
       assistantLog.scrollTop = assistantLog.scrollHeight;
     }
-    function addBubble(role, content) {
-      var bubble = document.createElement("div");
-      bubble.className = "bubble bubble-" + role;
-      bubble.setAttribute("dir", "auto");
-      if (role === "assistant") bubble.appendChild(formatReply(content));
-      else bubble.textContent = content;
+    function addMessage(message) {
+      var bubble = message.role === "assistant"
+        ? answerBubble(message.content, message.sources)
+        : questionBubble(message.content, message.contractName ? t("About: ", "عن: ") + message.contractName : "");
       assistantLog.appendChild(bubble);
       scrollAssistant();
     }
@@ -1342,7 +1731,7 @@
       welcome.className = "assistant-welcome";
       var greeting = document.createElement("div");
       greeting.className = "bubble bubble-assistant";
-      greeting.textContent = t("Hello. I'm the MAEEN Assistant. I can explain how the platform works and answer general questions about contracts. How can I help you?", "مرحبًا، أنا مساعد معين. أستطيع شرح طريقة استخدام المنصة والإجابة عن الأسئلة العامة المتعلقة بالعقود. كيف أستطيع مساعدتك؟");
+      greeting.textContent = t("Hello. I'm the MAEEN Assistant. I can explain how the platform works and answer general questions about contracts. To ask about one of your analyzed contracts, choose it above.", "مرحبًا، أنا مساعد معين. أستطيع شرح طريقة استخدام المنصة والإجابة عن الأسئلة العامة المتعلقة بالعقود. وللسؤال عن أحد عقودك المحللة، اختره من الأعلى.");
       welcome.appendChild(greeting);
       if (withSuggestions) {
         var group = document.createElement("div");
@@ -1367,9 +1756,7 @@
     }
 
     function showTyping() {
-      typingBubble = document.createElement("div");
-      typingBubble.className = "bubble bubble-assistant assistant-typing";
-      typingBubble.innerHTML = "<span class='sr-only'>" + t("MAEEN Assistant is typing", "مساعد معين يكتب") + "</span><i></i><i></i><i></i>";
+      typingBubble = typingIndicator(t("MAEEN Assistant is typing", "مساعد معين يكتب"));
       assistantLog.appendChild(typingBubble);
       scrollAssistant();
     }
@@ -1378,15 +1765,12 @@
       typingBubble = null;
     }
     function clearAssistantError() {
-      if (errorBubble) errorBubble.remove();
-      errorBubble = null;
+      if (retryBubble) retryBubble.remove();
+      retryBubble = null;
     }
     function showAssistantError(message) {
       clearAssistantError();
-      errorBubble = document.createElement("div");
-      errorBubble.className = "bubble bubble-error";
-      var text = document.createElement("span");
-      text.textContent = message;
+      retryBubble = errorBubble(message);
       var retry = document.createElement("button");
       retry.type = "button";
       retry.className = "button-link";
@@ -1395,49 +1779,91 @@
         clearAssistantError();
         askAssistant();
       });
-      errorBubble.appendChild(text);
-      errorBubble.appendChild(retry);
-      assistantLog.appendChild(errorBubble);
+      retryBubble.appendChild(retry);
+      assistantLog.appendChild(retryBubble);
       scrollAssistant();
     }
 
     function renderConversation() {
       assistantLog.textContent = "";
       typingBubble = null;
-      errorBubble = null;
+      retryBubble = null;
       addWelcome(assistantState.messages.length === 0);
-      assistantState.messages.forEach(function (message) { addBubble(message.role, message.content); });
+      assistantState.messages.forEach(addMessage);
       // A question without a reply means the last request did not finish, for example after leaving the page.
       var last = assistantState.messages[assistantState.messages.length - 1];
       if (last && last.role === "user") showAssistantError(t("Sorry, the reply could not be completed.", "عذرًا، تعذّر إكمال الرد."));
     }
 
+    // The list shows only contracts whose analysis is complete; they are the ones the AI can answer from.
+    function loadContractChoices() {
+      if (contractsLoaded) return;
+      contractsLoaded = true;
+      loadContracts().then(function (list) {
+        var ready = list.filter(function (contract) { return contract.status === "completed"; });
+        ready.forEach(function (contract) {
+          var option = document.createElement("option");
+          option.value = contract.id;
+          option.textContent = contract.file_name;
+          assistantContract.appendChild(option);
+        });
+        if (!ready.length) {
+          var none = document.createElement("option");
+          none.disabled = true;
+          none.textContent = t("No analyzed contracts yet", "لا توجد عقود مكتملة التحليل بعد");
+          assistantContract.appendChild(none);
+        }
+        var stillThere = ready.some(function (contract) { return contract.id === assistantState.scope; });
+        assistantContract.value = stillThere ? assistantState.scope : "";
+        setScope(assistantContract.value);
+      }).catch(function (error) {
+        contractsLoaded = false;
+        if (!error.redirected) showToast(errorMessage(error));
+      });
+    }
+    function setScope(contractId) {
+      assistantState.scope = contractId;
+      saveAssistant();
+      assistantInput.placeholder = contractId ? t("Ask about this contract", "اسأل عن هذا العقد") : t("Type your question", "اكتب سؤالك");
+    }
+
     function setAssistantBusy(busy) {
       assistantBusy = busy;
       assistantSend.disabled = busy;
+      assistantContract.disabled = busy;
       assistantForm.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+    function finishReply(message) {
+      hideTyping();
+      assistantState.messages.push(message);
+      saveAssistant();
+      addMessage(message);
     }
     function askAssistant() {
       if (assistantBusy) return;
+      var last = assistantState.messages[assistantState.messages.length - 1];
+      if (!last || last.role !== "user") return;
       setAssistantBusy(true);
       showTyping();
-      var recent = assistantState.messages.slice(-ASSISTANT_SENT).map(function (message) {
-        return { role: message.role, content: message.content.slice(0, 8000) };
-      });
-      request("POST", "/api/assistant/chat", { json: { messages: recent }, timeout: 60000 }).then(function (data) {
-        var reply = data && typeof data.reply === "string" ? data.reply.trim() : "";
-        if (!reply) {
-          var empty = new Error("Empty reply");
-          empty.status = 502;
-          throw empty;
-        }
+
+      var reply;
+      if (last.contractId) {
+        reply = request("POST", "/api/contracts/" + encodeURIComponent(last.contractId) + "/chat", { json: { question: last.content }, timeout: 90000 }).then(function (data) {
+          if (!data || typeof data.answer !== "string" || !data.answer.trim()) throw Object.assign(new Error("Empty answer"), { status: 502 });
+          finishReply({ role: "assistant", content: data.answer.trim(), sources: cleanSources(data.sources), contractId: last.contractId });
+        });
+      } else {
+        var recent = assistantState.messages.slice(-ASSISTANT_SENT).map(function (message) {
+          return { role: message.role, content: message.content.slice(0, 8000) };
+        });
+        reply = request("POST", "/api/assistant/chat", { json: { messages: recent }, timeout: 60000 }).then(function (data) {
+          if (!data || typeof data.reply !== "string" || !data.reply.trim()) throw Object.assign(new Error("Empty reply"), { status: 502 });
+          finishReply({ role: "assistant", content: data.reply.trim() });
+        });
+      }
+      reply.catch(function (error) {
         hideTyping();
-        assistantState.messages.push({ role: "assistant", content: reply });
-        saveAssistant();
-        addBubble("assistant", reply);
-      }).catch(function (error) {
-        hideTyping();
-        if (!error.redirected) showAssistantError(errorMessage(error));
+        if (!error.redirected) showAssistantError(last.contractId ? contractQuestionError(error) : errorMessage(error));
       }).then(function () {
         setAssistantBusy(false);
       });
@@ -1448,9 +1874,14 @@
       clearAssistantError();
       var suggestions = assistantLog.querySelector(".assistant-suggestions");
       if (suggestions) suggestions.remove();
-      assistantState.messages.push({ role: "user", content: question });
+      var message = { role: "user", content: question };
+      if (assistantContract.value) {
+        message.contractId = assistantContract.value;
+        message.contractName = assistantContract.options[assistantContract.selectedIndex].textContent;
+      }
+      assistantState.messages.push(message);
       saveAssistant();
-      addBubble("user", question);
+      addMessage(message);
       assistantInput.value = "";
       askAssistant();
     }
@@ -1462,6 +1893,7 @@
       document.body.classList.add("assistant-open");
       assistantState.open = true;
       saveAssistant();
+      loadContractChoices();
       scrollAssistant();
       if (focusInput) assistantInput.focus();
     }
@@ -1485,6 +1917,10 @@
       assistantState.messages = [];
       saveAssistant();
       renderConversation();
+      assistantInput.focus();
+    });
+    assistantContract.addEventListener("change", function () {
+      setScope(assistantContract.value);
       assistantInput.focus();
     });
     assistantPanel.addEventListener("keydown", function (event) {

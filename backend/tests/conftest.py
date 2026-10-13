@@ -31,6 +31,7 @@ class FakeQuery:
         self.columns = None
         self.payload = None
         self.filters = []
+        self.in_filters = []
         self.order_by = None
         self.max_rows = None
 
@@ -47,8 +48,17 @@ class FakeQuery:
         self.action = "delete"
         return self
 
+    def update(self, payload):
+        self.action = "update"
+        self.payload = payload
+        return self
+
     def eq(self, column, value):
         self.filters.append((column, value))
+        return self
+
+    def in_(self, column, values):
+        self.in_filters.append((column, tuple(values)))
         return self
 
     def order(self, column, desc=False):
@@ -60,7 +70,10 @@ class FakeQuery:
         return self
 
     def _matches(self, row):
-        return all(row.get(column) == value for column, value in self.filters)
+        return (
+            all(row.get(column) == value for column, value in self.filters)
+            and all(row.get(column) in values for column, values in self.in_filters)
+        )
 
     def execute(self):
         self.db.queries.append(self)
@@ -80,6 +93,12 @@ class FakeQuery:
             }
             rows.append(row)
             return FakeResponse([dict(row)])
+
+        if self.action == "update":
+            changed = [row for row in rows if self._matches(row)]
+            for row in changed:
+                row.update(self.payload)
+            return FakeResponse([dict(row) for row in changed])
 
         if self.action == "delete":
             removed = [row for row in rows if self._matches(row)]

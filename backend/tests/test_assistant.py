@@ -29,6 +29,7 @@ def fake_openai(monkeypatch):
     responses = FakeResponses()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("CHAT_MODEL", "test-model")
+    monkeypatch.delenv("CHAT_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
         assistant_service,
         "_openai_client",
@@ -77,6 +78,16 @@ def test_sends_instructions_history_and_privacy_settings(client, fake_openai, si
     assert call["max_output_tokens"] == assistant_service.MAX_OUTPUT_TOKENS
     assert USER_A not in call["safety_identifier"]
     assert len(call["safety_identifier"]) == 64
+
+
+def test_reasoning_effort_is_sent_only_when_set(client, fake_openai, signed_in_as, monkeypatch):
+    signed_in_as(USER_A)
+    ask(client, [QUESTION])
+    monkeypatch.setenv("CHAT_REASONING_EFFORT", "low")
+    ask(client, [QUESTION])
+
+    assert "reasoning" not in fake_openai.calls[0]
+    assert fake_openai.calls[1]["reasoning"] == {"effort": "low"}
 
 
 def test_sends_only_the_latest_messages(client, fake_openai, signed_in_as):

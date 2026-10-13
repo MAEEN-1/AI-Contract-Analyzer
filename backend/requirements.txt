@@ -8,3 +8,8 @@ python-dotenv==1.2.3
 email-validator==2.3.0
 python-multipart==0.0.32
 openai==2.54.0
+# AI Backend (ai_backend/) used by services/F_ai_service.py
+PyMuPDF==1.28.2
+langchain-openai==1.7.0
+langchain-text-splitters==1.1.3
+psycopg[binary]==3.3.6

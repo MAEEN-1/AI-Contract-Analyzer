@@ -4,6 +4,8 @@ import os
 import threading
 import time
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -121,32 +123,36 @@ def _safety_identifier(user_id: str) -> str:
     return hashlib.sha256(f"maeen:{user_id}".encode()).hexdigest()
 
 
-def generate_reply(user_id: str, messages: list[dict]) -> str:
+def _reply_request(user_id: str, messages: list[dict]) -> dict:
     model = os.getenv("CHAT_MODEL")
     if not os.getenv("OPENAI_API_KEY") or not model:
         raise AssistantNotConfigured("OPENAI_API_KEY or CHAT_MODEL is missing")
 
-    client = _openai_client()
     options = {}
     # Optional: how long a reasoning model thinks before answering ("low" keeps replies fast).
     reasoning_effort = os.getenv("CHAT_REASONING_EFFORT")
     if reasoning_effort:
         options["reasoning"] = {"effort": reasoning_effort}
 
+    return {
+        "model": model,
+        "instructions": INSTRUCTIONS,
+        "input": [
+            {"role": message["role"], "content": message["content"]}
+            for message in messages[-HISTORY_SENT:]
+        ],
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "store": False,
+        "safety_identifier": _safety_identifier(user_id),
+        "truncation": "auto",
+        **options,
+    }
+
+
+@contextmanager
+def _openai_errors():
     try:
-        response = client.responses.create(
-            model=model,
-            instructions=INSTRUCTIONS,
-            input=[
-                {"role": message["role"], "content": message["content"]}
-                for message in messages[-HISTORY_SENT:]
-            ],
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-            store=False,
-            safety_identifier=_safety_identifier(user_id),
-            truncation="auto",
-            **options,
-        )
+        yield
 
     except (APIConnectionError, RateLimitError, InternalServerError) as error:
         logger.warning("Assistant could not reach OpenAI: %s", type(error).__name__)
@@ -164,8 +170,56 @@ def generate_reply(user_id: str, messages: list[dict]) -> str:
         logger.error("Assistant OpenAI error: %s", type(error).__name__)
         raise AssistantFailed("OpenAI request failed") from error
 
+
+def generate_reply(user_id: str, messages: list[dict]) -> str:
+    request = _reply_request(user_id, messages)
+
+    with _openai_errors():
+        response = _openai_client().responses.create(**request)
+
     reply = (response.output_text or "").strip()
     if not reply:
         raise AssistantFailed("OpenAI returned no text")
 
     return reply
+
+
+def _text_parts(events) -> Iterator[str]:
+    try:
+        for event in events:
+            if event.type == "response.output_text.delta":
+                yield event.delta
+            elif event.type in ("response.failed", "error"):
+                logger.error("OpenAI stopped the assistant reply: %s", event.type)
+                raise AssistantFailed("OpenAI stopped the reply")
+            elif event.type == "response.incomplete":
+                # The reply hit MAX_OUTPUT_TOKENS; what was written so far is kept.
+                logger.warning("Assistant reply was cut short")
+    finally:
+        events.close()
+
+
+def _rest_of_reply(first: str, parts: Iterator[str]) -> Iterator[str]:
+    yield first
+    with _openai_errors():
+        yield from parts
+
+
+def stream_reply(user_id: str, messages: list[dict]) -> Iterator[str]:
+    """Returns the reply in parts, as OpenAI writes it.
+
+    This waits for the first words before returning, so a failure before then raises
+    here, while the caller can still answer with an error status. A later failure
+    raises from the returned iterator.
+    """
+    request = _reply_request(user_id, messages)
+
+    with _openai_errors():
+        parts = _text_parts(_openai_client().responses.create(**request, stream=True))
+        # Spaces before the first words are dropped, as generate_reply strips them.
+        first = next((part.lstrip() for part in parts if part.strip()), None)
+
+    if first is None:
+        raise AssistantFailed("OpenAI returned no text")
+
+    return _rest_of_reply(first, parts)

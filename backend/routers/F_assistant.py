@@ -1,4 +1,9 @@
+import json
+import logging
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from dependencies.F_auth import get_current_user
 from models.F_assistant_data import AssistantReply, AssistantRequest
@@ -7,14 +12,16 @@ from services.F_assistant_service import (
     AssistantNotConfigured,
     AssistantUnavailable,
     generate_reply,
+    stream_reply,
     take_rate_slot,
 )
 
 router = APIRouter()
 
+logger = logging.getLogger("maeen.assistant")
 
-@router.post("/api/assistant/chat", response_model=AssistantReply)
-def chat(data: AssistantRequest, user=Depends(get_current_user)):
+
+def _answer(action, data: AssistantRequest, user):
     wait_seconds = take_rate_slot(str(user.id))
     if wait_seconds:
         raise HTTPException(
@@ -24,7 +31,7 @@ def chat(data: AssistantRequest, user=Depends(get_current_user)):
         )
 
     try:
-        reply = generate_reply(
+        return action(
             str(user.id),
             [message.model_dump() for message in data.messages],
         )
@@ -41,4 +48,37 @@ def chat(data: AssistantRequest, user=Depends(get_current_user)):
             detail="Invalid response from assistant service",
         ) from error
 
-    return {"reply": reply}
+
+@router.post("/api/assistant/chat", response_model=AssistantReply)
+def chat(data: AssistantRequest, user=Depends(get_current_user)):
+    return {"reply": _answer(generate_reply, data, user)}
+
+
+def _event(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _reply_events(parts: Iterator[str]) -> Iterator[str]:
+    try:
+        for part in parts:
+            yield _event({"delta": part})
+
+    except (AssistantNotConfigured, AssistantUnavailable, AssistantFailed) as error:
+        # The status was already sent, so the failure goes in the stream itself.
+        logger.warning("Assistant reply stopped midway: %s", type(error).__name__)
+        yield _event({"error": "The reply was interrupted. Try again"})
+        return
+
+    yield _event({"done": True})
+
+
+@router.post("/api/assistant/chat/stream")
+def chat_stream(data: AssistantRequest, user=Depends(get_current_user)):
+    """Sends the reply in parts as server-sent events, so it shows as it is written."""
+    parts = _answer(stream_reply, data, user)
+    return StreamingResponse(
+        _reply_events(parts),
+        media_type="text/event-stream",
+        # Proxies must pass each part on at once instead of holding the reply.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

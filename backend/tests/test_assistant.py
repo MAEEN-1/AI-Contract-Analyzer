@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -11,16 +12,40 @@ from conftest import USER_A, USER_B
 QUESTION = {"role": "user", "content": "What does a termination clause mean?"}
 
 
+class FakeStream:
+    """Stands in for OpenAI's event stream. An item in parts may be an event or an error to raise."""
+
+    def __init__(self, parts):
+        self.parts = parts
+        self.closed = False
+
+    def __iter__(self):
+        for part in self.parts:
+            if isinstance(part, Exception):
+                raise part
+            if isinstance(part, str):
+                part = SimpleNamespace(type="response.output_text.delta", delta=part)
+            yield part
+
+    def close(self):
+        self.closed = True
+
+
 class FakeResponses:
     def __init__(self):
         self.calls = []
         self.reply = "A termination clause sets out how the contract can end."
+        self.parts = ["A termination clause ", "sets out how ", "the contract can end."]
         self.error = None
+        self.streams = []
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
         if self.error:
             raise self.error
+        if kwargs.get("stream"):
+            self.streams.append(FakeStream(self.parts))
+            return self.streams[-1]
         return SimpleNamespace(output_text=self.reply)
 
 
@@ -218,3 +243,117 @@ def test_empty_model_reply_returns_502(client, fake_openai, signed_in_as):
     fake_openai.reply = "   "
 
     assert ask(client, [QUESTION]).status_code == 502
+
+
+# ---------- streamed replies ----------
+
+def ask_stream(client, messages):
+    return client.post("/api/assistant/chat/stream", json={"messages": messages})
+
+
+def stream_events(response):
+    return [
+        json.loads(block.removeprefix("data: "))
+        for block in response.text.split("\n\n")
+        if block
+    ]
+
+
+def test_stream_sends_the_reply_in_parts(client, fake_openai, signed_in_as):
+    signed_in_as(USER_A)
+
+    response = ask_stream(client, [QUESTION])
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = stream_events(response)
+    assert events[:-1] == [{"delta": part} for part in fake_openai.parts]
+    assert events[-1] == {"done": True}
+    assert fake_openai.streams[0].closed
+
+
+def test_stream_sends_the_same_request_as_the_plain_reply(client, fake_openai, signed_in_as):
+    signed_in_as(USER_A)
+
+    ask(client, [QUESTION])
+    ask_stream(client, [QUESTION])
+
+    plain, streamed = fake_openai.calls
+    assert streamed.pop("stream") is True
+    assert streamed == plain
+
+
+def test_stream_drops_spaces_before_the_first_words(client, fake_openai, signed_in_as):
+    signed_in_as(USER_A)
+    fake_openai.parts = ["\n", "  A termination clause", " ends a contract."]
+
+    events = stream_events(ask_stream(client, [QUESTION]))
+
+    assert events[0] == {"delta": "A termination clause"}
+    assert events[1] == {"delta": " ends a contract."}
+
+
+def test_stream_requires_sign_in(client, fake_openai):
+    assert ask_stream(client, [QUESTION]).status_code == 401
+    assert fake_openai.calls == []
+
+
+def test_stream_shares_the_question_limit(client, fake_openai, signed_in_as):
+    signed_in_as(USER_A)
+    for _ in range(assistant_service.RATE_LIMIT):
+        ask_stream(client, [QUESTION])
+
+    assert ask_stream(client, [QUESTION]).status_code == 429
+    assert ask(client, [QUESTION]).status_code == 429
+
+
+@pytest.mark.parametrize("error, expected_status", [
+    (openai.APIConnectionError(request=httpx.Request("POST", "https://api.openai.com")), 503),
+    (status_error(openai.RateLimitError, 429), 503),
+    (status_error(openai.AuthenticationError, 401), 503),
+    (status_error(openai.BadRequestError, 400), 502),
+])
+def test_stream_errors_before_the_first_words_map_to_statuses(client, fake_openai, signed_in_as, error, expected_status):
+    signed_in_as(USER_A)
+    fake_openai.error = error
+
+    response = ask_stream(client, [QUESTION])
+
+    assert response.status_code == expected_status
+    assert "detail" in response.json()
+
+
+def test_stream_with_no_words_returns_502(client, fake_openai, signed_in_as):
+    signed_in_as(USER_A)
+    fake_openai.parts = ["  ", "\n"]
+
+    assert ask_stream(client, [QUESTION]).status_code == 502
+    assert fake_openai.streams[0].closed
+
+
+@pytest.mark.parametrize("failure", [
+    SimpleNamespace(type="error"),
+    SimpleNamespace(type="response.failed"),
+    openai.APIConnectionError(request=httpx.Request("POST", "https://api.openai.com")),
+])
+def test_stream_failure_midway_ends_with_an_error_event(client, fake_openai, signed_in_as, failure):
+    signed_in_as(USER_A)
+    fake_openai.parts = ["A termination clause ", failure, "never sent"]
+
+    response = ask_stream(client, [QUESTION])
+
+    assert response.status_code == 200
+    events = stream_events(response)
+    assert events[0] == {"delta": "A termination clause "}
+    assert list(events[-1]) == ["error"]
+    assert {"delta": "never sent"} not in events
+    assert fake_openai.streams[0].closed
+
+
+def test_stream_cut_short_keeps_what_was_written(client, fake_openai, signed_in_as):
+    signed_in_as(USER_A)
+    fake_openai.parts = ["A termination clause", SimpleNamespace(type="response.incomplete")]
+
+    events = stream_events(ask_stream(client, [QUESTION]))
+
+    assert events == [{"delta": "A termination clause"}, {"done": True}]

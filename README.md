@@ -3,7 +3,7 @@ AI-powered platform for contract analysis and RAG-based contract Q&amp;A.
 
 ## General Backend (FastAPI)
 
-The backend lives in `backend/` and currently provides authentication on top of Supabase Auth, plus contract upload, list, view and delete. Endpoints, the auth flow for the frontend, and open items are in [docs/BACKEND_HANDOFF.md](docs/BACKEND_HANDOFF.md).
+The backend lives in `backend/` and provides Supabase authentication, contract upload and management, AI analysis, and cited contract Q&A. Endpoints and setup are in [docs/BACKEND_HANDOFF.md](docs/BACKEND_HANDOFF.md).
 
 Run it locally (Python 3.10+, tested on 3.14):
 
@@ -26,14 +26,14 @@ python -m pytest
 
 ## Frontend
 
-The frontend lives in `frontend/` (plain HTML, CSS and JavaScript, no build step). It opens in English, with an Arabic switch, and calls the General Backend for sign-up, sign-in, and contract upload, list, view and delete. Analysis results and inquiries are not connected yet.
+The frontend lives in `frontend/` (plain HTML, CSS and JavaScript, no build step). It supports English and Arabic, account activation, contract management, analysis results, and per-contract inquiries.
 
 Run it next to the backend:
 
 1. In `backend/.env`, set `FRONTEND_URL` to the exact address the frontend will use, for example `http://localhost:3000`. Separate several addresses with commas, for example the local site and the Netlify site.
 2. Serve the folder: `npx serve frontend -l 3000`, then open `http://localhost:3000`.
 
-The backend address is at the top of `frontend/app.js`: on `localhost` the site uses `http://127.0.0.1:8000`, and anywhere else (such as Netlify) it uses `PUBLIC_API_URL`. Design decisions, the approved copy and how each page uses the API are in [docs/FRONTEND_DESIGN.md](docs/FRONTEND_DESIGN.md).
+The frontend uses `http://127.0.0.1:8000` locally. Hosted sites can set `window.MAEEN_API_URL` before loading `app.js`; otherwise requests use the site's own origin. Design decisions are in [docs/FRONTEND_DESIGN.md](docs/FRONTEND_DESIGN.md).
 
 ## Supabase Database — MAEEN
 
@@ -105,7 +105,7 @@ Max file size: 50 MB
 The documented object path is:
 
 ```text
-{user_id}/{contract_id}/{file_name}
+{user_id}/{contract_id}/contract.pdf
 ```
 
 The same path must be stored in `contracts.storage_path`. Original PDFs remain stored after AI processing. Storage upload, retrieval, and deletion must be performed by trusted backend services. The service-role key must never be exposed to frontend code.

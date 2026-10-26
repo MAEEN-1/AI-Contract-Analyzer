@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import ai_backend.supabase_store as store
 from ai_backend.supabase_store import search_contract_chunks
 
 
@@ -49,3 +50,21 @@ def test_vector_query_is_filtered_to_contract(monkeypatch):
     assert "WHERE contract_id = %s::uuid" in connection.last_cursor.query
     assert connection.last_cursor.args[1] == contract_id
     assert results[0]["page_number"] == 2
+
+
+def test_default_database_connection_has_a_bounded_timeout(monkeypatch):
+    monkeypatch.setenv("SUPABASE_DB_URL", "postgresql://unused-for-test")
+    calls = []
+    connection = FakeConnection()
+
+    def fake_connect(url, **options):
+        calls.append((url, options))
+        return connection
+
+    monkeypatch.setattr(store.psycopg, "connect", fake_connect)
+    search_contract_chunks(str(uuid4()), [0.1] * 1536, top_k=1)
+
+    assert calls == [(
+        "postgresql://unused-for-test",
+        {"connect_timeout": store.DB_CONNECT_TIMEOUT_SECONDS},
+    )]

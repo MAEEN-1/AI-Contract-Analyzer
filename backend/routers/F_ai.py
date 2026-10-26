@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from dependencies.F_auth import get_current_user
 from models.F_ai_data import AnalysisOut, AnalysisStarted, ChatEntry, ContractAnswer, ContractQuestion
+from models.Y_contract_data import ContractOut
 from services.F_ai_service import (
     ANALYSIS_LIMIT,
     ANALYSIS_WINDOW_SECONDS,
@@ -13,6 +14,8 @@ from services.F_ai_service import (
     AnalysisAlreadyRunning,
     ContractNotFound,
     ContractNotReady,
+    SuggestedNameUnavailable,
+    apply_suggested_name,
     ask_contract,
     get_analysis,
     list_chat,
@@ -41,6 +44,12 @@ def _run(action, *args):
         raise HTTPException(
             status_code=409,
             detail="The contract is already being analyzed",
+        ) from error
+
+    except SuggestedNameUnavailable as error:
+        raise HTTPException(
+            status_code=409,
+            detail="No descriptive filename was suggested for this contract",
         ) from error
 
     except (AiNotConfigured, AiUnavailable) as error:
@@ -86,6 +95,11 @@ def read_analysis(contract_id: UUID, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     return result
+
+
+@router.post("/{contract_id}/apply-suggested-name", response_model=ContractOut)
+def rename_from_analysis(contract_id: UUID, user=Depends(get_current_user)):
+    return _run(apply_suggested_name, str(user.id), str(contract_id))
 
 
 @router.post("/{contract_id}/chat", response_model=ContractAnswer)

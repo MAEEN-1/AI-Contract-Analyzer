@@ -33,13 +33,11 @@
   };
   var page = document.body.getAttribute("data-maeen-page") || routes[path] || "landing";
 
-  // The General Backend address. On this computer the site uses the local backend;
-  // anywhere else (such as Netlify) it uses the public address, which must be https.
+  // A hosted frontend can set window.MAEEN_API_URL before loading app.js.
+  // Same-origin deployments work without configuration.
   var LOCAL_API_URL = "http://127.0.0.1:8000";
-  // A Cloudflare quick tunnel to a locally running backend; the address changes when the tunnel restarts.
-  var PUBLIC_API_URL = "https://tested-differ-homes-semi.trycloudflare.com";
   var isLocalSite = ["localhost", "127.0.0.1", ""].indexOf(location.hostname) !== -1;
-  var API_URL = isLocalSite || !PUBLIC_API_URL ? LOCAL_API_URL : PUBLIC_API_URL;
+  var API_URL = (window.MAEEN_API_URL || (isLocalSite ? LOCAL_API_URL : location.origin)).replace(/\/$/, "");
   var SESSION_KEY = "maeen-session";
   // The assistant conversation lasts for this browser tab only.
   var ASSISTANT_KEY = "maeen-assistant";
@@ -617,6 +615,7 @@
       "<div class='page-head'><div><h1>", t("Contract details", "تفاصيل العقد"), "</h1></div><span id='detail-status'><span class='status'>", t("No contract selected", "لم يُحدَّد عقد"), "</span></span></div>",
       "<p class='alert detail-error' id='detail-error' role='alert' hidden></p>",
       "<div class='panel meta'><div><span>", t("File name", "اسم الملف"), "</span><strong id='detail-file'>—</strong></div><div><span>", t("Status", "الحالة"), "</span><strong id='detail-state'>—</strong></div><div><span>", t("Upload date", "تاريخ الرفع"), "</span><strong id='detail-date'>—</strong></div></div>",
+      "<p class='suggested-filename' id='suggested-filename' hidden></p>",
       "<div class='analysis-state' id='analysis-state' role='status' hidden></div>",
       "<section class='panel'><div class='panel-tabs'><div class='tabs' role='tablist' aria-label='", t("Contract sections", "أقسام العقد"), "'>",
       tab("overview", t("Overview", "نظرة عامة"), true), tab("analysis", t("Analysis results", "نتائج التحليل"), false), tab("ask", t("Inquiries", "الاستفسارات"), false),
@@ -636,7 +635,7 @@
       "<p class='disclaimer'>", DISCLAIMER, "</p>",
       "</div>",
       "</section>",
-      "<div class='detail-actions' id='detail-actions' hidden><button class='button button-danger' type='button' id='delete-contract'>", t("Delete contract", "حذف العقد"), "</button></div>"
+      "<div class='detail-actions' id='detail-actions' hidden><button class='button button-secondary' type='button' id='apply-suggested-name' hidden>", t("Use suggested name", "استخدام الاسم المقترح"), "</button><button class='button button-danger' type='button' id='delete-contract'>", t("Delete contract", "حذف العقد"), "</button></div>"
     ].join("");
     return shell("details", t("Contract details", "تفاصيل العقد"), content);
   }
@@ -1348,6 +1347,8 @@
     var detailStatus = document.getElementById("detail-status");
     var detailError = document.getElementById("detail-error");
     var deleteButton = document.getElementById("delete-contract");
+    var renameButton = document.getElementById("apply-suggested-name");
+    var suggestedNameNote = document.getElementById("suggested-filename");
     var analysisState = document.getElementById("analysis-state");
     var detailThread = document.getElementById("detail-thread");
     var detailForm = document.getElementById("detail-ask-form");
@@ -1355,8 +1356,20 @@
     var contractUrl = "/api/contracts/" + encodeURIComponent(contractId || "");
     var currentStatus = null;
     var analysisShown = false;
+    var detailFileName = "";
+    var suggestedFilename = "";
     var pollTimer = null;
     var pollSince = 0;
+
+    function updateSuggestedName() {
+      var useful = /^[a-z0-9][a-z0-9_-]{0,74}\.pdf$/.test(suggestedFilename) && suggestedFilename !== "document.pdf";
+      suggestedNameNote.hidden = !useful;
+      renameButton.hidden = !useful || suggestedFilename === detailFileName;
+      if (useful) {
+        suggestedNameNote.textContent = t("Suggested from the document: ", "الاسم المقترح من المستند: ") + suggestedFilename +
+          (suggestedFilename === detailFileName ? t(" (in use)", " (مستخدم حاليًا)") : "");
+      }
+    }
 
     function showStatus(status) {
       currentStatus = status;
@@ -1469,13 +1482,28 @@
       var summaryBox = document.createElement("div");
       summaryBox.className = "detail-box";
       var summaryTitle = document.createElement("h3");
-      summaryTitle.textContent = t("Contract summary", "ملخص العقد");
+      summaryTitle.textContent = analysis.is_contract === false ? t("Document summary", "ملخص المستند") : t("Contract summary", "ملخص العقد");
       var summaryText = document.createElement("div");
       summaryText.className = "analysis-text";
       summaryText.setAttribute("dir", "auto");
       summaryText.appendChild(formatReply(analysis.summary || "—"));
       summaryBox.appendChild(summaryTitle);
       summaryBox.appendChild(summaryText);
+
+      if (analysis.is_contract === false) {
+        grid.classList.add("detail-grid-single");
+        grid.appendChild(summaryBox);
+        var documentOverview = document.getElementById("overview-body");
+        documentOverview.textContent = "";
+        documentOverview.appendChild(grid);
+        var documentAnalysis = document.getElementById("analysis-body");
+        documentAnalysis.textContent = "";
+        var documentNotice = document.createElement("p");
+        documentNotice.className = "notice notice-info";
+        documentNotice.textContent = t("This document was identified as a non-contract. Contract clauses and risks do not apply.", "صُنّف هذا المستند بأنه ليس عقدًا، لذا لا تُعرض له بنود أو مخاطر عقدية.");
+        documentAnalysis.appendChild(documentNotice);
+        return;
+      }
 
       var factsBox = document.createElement("div");
       factsBox.className = "detail-box";
@@ -1522,7 +1550,10 @@
 
     function loadAnalysis() {
       request("GET", contractUrl + "/analysis").then(function (data) {
-        renderAnalysis(data.analysis || {});
+        var analysis = data.analysis || {};
+        suggestedFilename = analysis.suggested_filename || "";
+        updateSuggestedName();
+        renderAnalysis(analysis);
       }).catch(function (error) {
         if (!error.redirected && error.status !== 404) showToast(errorMessage(error));
       });
@@ -1534,7 +1565,9 @@
     function showContract(contract) {
       rememberRecent(contract.id);
       // <bdi> keeps an Arabic name inside an English page (or the reverse) in the right order.
+      detailFileName = contract.file_name;
       document.getElementById("detail-file").innerHTML = "<bdi>" + escapeHtml(contract.file_name) + "</bdi>";
+      updateSuggestedName();
       document.getElementById("detail-date").textContent = formatDate(contract.created_at, true);
       document.getElementById("detail-actions").hidden = false;
       showStatus(contract.status);
@@ -1570,6 +1603,19 @@
       detailStatus.innerHTML = "<span class='status'>" + t("Loading…", "جارٍ التحميل…") + "</span>";
       loadContract();
     }
+    renameButton.addEventListener("click", function () {
+      setBusy(renameButton, true, t("Applying…", "جارٍ التطبيق…"));
+      request("POST", contractUrl + "/apply-suggested-name").then(function (contract) {
+        detailFileName = contract.file_name;
+        document.getElementById("detail-file").innerHTML = "<bdi>" + escapeHtml(detailFileName) + "</bdi>";
+        updateSuggestedName();
+        showToast(t("Document name updated.", "تحدّث اسم المستند."));
+      }).catch(function (error) {
+        if (!error.redirected) showToast(errorMessage(error));
+      }).then(function () {
+        setBusy(renameButton, false);
+      });
+    });
     deleteButton.addEventListener("click", async function () {
       if (!window.confirm(t("Delete this contract? The file and its analysis results will be permanently deleted.", "هل تريد حذف هذا العقد؟ سيُحذف الملف ونتائج تحليله نهائيًا."))) return;
       setBusy(deleteButton, true, t("Deleting…", "جارٍ الحذف…"));

@@ -4,6 +4,7 @@ The AI package itself (ai_backend/) is replaced by a fake, so these tests never
 call OpenAI or the database. ai_backend has its own tests in ai_backend/tests.
 """
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import httpx
@@ -180,6 +181,68 @@ def test_cannot_read_another_users_analysis(client, fake_db, fake_ai, signed_in_
     assert client.get(f"/api/contracts/{CONTRACT}/analysis").status_code == 404
 
 
+def test_owner_can_apply_suggested_name_without_moving_the_pdf(
+    client, fake_db, fake_ai, signed_in_as,
+):
+    signed_in_as(USER_A)
+    storage_path = fake_db.add_contract(USER_A, CONTRACT, file_name="original.pdf")
+    set_status(fake_db, "completed")
+    fake_db.tables["analysis_results"] = [{
+        "contract_id": CONTRACT,
+        "analysis": {"suggested_filename": "service_agreement.pdf"},
+        "created_at": "2026-10-01T00:00:00+00:00",
+    }]
+
+    endpoint = f"/api/contracts/{CONTRACT}/apply-suggested-name"
+    first = client.post(endpoint)
+    assert first.status_code == 200
+    assert first.json()["file_name"] == "service_agreement.pdf"
+    assert "storage_path" not in first.json()
+    assert fake_db.tables["contracts"][0]["storage_path"] == storage_path
+    assert fake_db.files[storage_path] == b"%PDF-1.7 old"
+    assert client.get(f"/api/contracts/{CONTRACT}").json()["file_name"] == "service_agreement.pdf"
+
+    # Repeated clicks are harmless and do not write another update.
+    updates_before = sum(query.table == "contracts" and query.action == "update" for query in fake_db.queries)
+    assert client.post(endpoint).json()["file_name"] == "service_agreement.pdf"
+    assert sum(query.table == "contracts" and query.action == "update" for query in fake_db.queries) == updates_before
+
+
+@pytest.mark.parametrize("suggestion", ["../unsafe.pdf", "document.pdf", "", None])
+def test_suggested_name_rejects_unsafe_or_generic_values(
+    client, fake_db, fake_ai, signed_in_as, suggestion,
+):
+    signed_in_as(USER_A)
+    fake_db.add_contract(USER_A, CONTRACT, file_name="original.pdf")
+    set_status(fake_db, "completed")
+    fake_db.tables["analysis_results"] = [{
+        "contract_id": CONTRACT,
+        "analysis": {"suggested_filename": suggestion},
+        "created_at": "2026-10-01T00:00:00+00:00",
+    }]
+
+    response = client.post(f"/api/contracts/{CONTRACT}/apply-suggested-name")
+    assert response.status_code == 409
+    assert fake_db.tables["contracts"][0]["file_name"] == "original.pdf"
+
+
+def test_suggested_name_requires_a_completed_owned_analysis(client, fake_db, fake_ai, signed_in_as):
+    fake_db.add_contract(USER_A, CONTRACT)
+    endpoint = f"/api/contracts/{CONTRACT}/apply-suggested-name"
+
+    signed_in_as(USER_B)
+    assert client.post(endpoint).status_code == 404
+    signed_in_as(USER_A)
+    assert client.post(endpoint).status_code == 409
+    set_status(fake_db, "completed")
+    assert client.post(endpoint).status_code == 409  # no saved analysis
+    assert fake_db.tables["contracts"][0]["file_name"] == "old.pdf"
+
+
+def test_suggested_name_requires_sign_in(client):
+    assert client.post(f"/api/contracts/{CONTRACT}/apply-suggested-name").status_code == 401
+
+
 def test_analysis_endpoints_require_sign_in(client, fake_db, fake_ai):
     assert client.post(f"/api/contracts/{CONTRACT}/analyze").status_code == 401
     assert client.get(f"/api/contracts/{CONTRACT}/analysis").status_code == 401
@@ -295,3 +358,39 @@ def test_missing_ai_packages_return_503(client, fake_db, fake_ai, signed_in_as, 
     monkeypatch.setattr(ai_service, "_ai", no_packages)
 
     assert ask(client).status_code == 503
+
+
+def test_operator_recovery_requires_an_old_owned_processing_row(fake_db, fake_ai):
+    fake_db.add_contract(USER_A, CONTRACT)
+    row = fake_db.tables["contracts"][0]
+    row["status"] = "processing"
+    now = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    row["updated_at"] = (now - timedelta(minutes=30)).isoformat()
+
+    assert not ai_service.mark_interrupted_analysis_failed(USER_A, CONTRACT, now=now)
+    with pytest.raises(ai_service.ContractNotFound):
+        ai_service.mark_interrupted_analysis_failed(USER_B, CONTRACT, now=now)
+    assert row["status"] == "processing"
+
+    row["updated_at"] = (now - timedelta(hours=2)).isoformat()
+    assert ai_service.mark_interrupted_analysis_failed(USER_A, CONTRACT, now=now)
+    assert row["status"] == "failed"
+    assert not ai_service.mark_interrupted_analysis_failed(USER_A, CONTRACT, now=now)
+
+
+def test_operator_recovery_checks_timestamp_at_update(fake_db, fake_ai, monkeypatch):
+    fake_db.add_contract(USER_A, CONTRACT)
+    row = fake_db.tables["contracts"][0]
+    row["status"] = "processing"
+    row["updated_at"] = "2026-10-12T11:59:00+00:00"
+    original_owned_contract = ai_service._owned_contract
+
+    def stale_read(user_id, contract_id):
+        contract = original_owned_contract(user_id, contract_id)
+        return {**contract, "updated_at": "2026-10-01T00:00:00+00:00"}
+
+    monkeypatch.setattr(ai_service, "_owned_contract", stale_read)
+    assert not ai_service.mark_interrupted_analysis_failed(
+        USER_A, CONTRACT, now=datetime(2026, 10, 12, 12, tzinfo=timezone.utc),
+    )
+    assert row["status"] == "processing"

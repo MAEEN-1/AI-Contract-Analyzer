@@ -10,6 +10,7 @@ the service_role key bypasses RLS.
 import logging
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,7 +21,8 @@ from services.F_supabase_client import get_supabase_client
 # ai_backend/ sits next to backend/, so the repository root must be importable.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
+    # Prefer this checkout over an unrelated installed package of the same name.
+    sys.path.insert(0, str(REPO_ROOT))
 
 # The AI package calls the service_role key SUPABASE_SERVICE_ROLE_KEY; ours is SUPABASE_KEY.
 if os.getenv("SUPABASE_KEY") and not os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
@@ -29,11 +31,12 @@ if os.getenv("SUPABASE_KEY") and not os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
 logger = logging.getLogger("maeen.ai")
 
 REQUIRED_SETTINGS = ("OPENAI_API_KEY", "CHAT_MODEL", "SUPABASE_DB_URL", "SUPABASE_SERVICE_ROLE_KEY")
-CONTRACT_COLUMNS = "id,status"
+CONTRACT_COLUMNS = "id,file_name,status,created_at,updated_at"
 # Each analysis makes several paid OpenAI requests, so it has its own, smaller limit.
 ANALYSIS_LIMIT = 10
 ANALYSIS_WINDOW_SECONDS = 3600
 CHAT_HISTORY_LIMIT = 50
+MIN_STALE_PROCESSING_AGE = timedelta(hours=1)
 
 
 class AiNotConfigured(Exception):
@@ -58,6 +61,10 @@ class ContractNotReady(Exception):
 
 class AnalysisAlreadyRunning(Exception):
     """The contract is being analyzed right now."""
+
+
+class SuggestedNameUnavailable(Exception):
+    """The saved analysis does not contain a safe, descriptive PDF name."""
 
 
 def missing_settings() -> list[str]:
@@ -184,6 +191,89 @@ def get_analysis(user_id: str, contract_id: str) -> dict | None:
         .execute())
 
     return response.data[0] if response.data else None
+
+
+def apply_suggested_name(user_id: str, contract_id: str) -> dict:
+    """Change only the owner's display name after they explicitly request it.
+
+    The PDF keeps its original Storage path, so existing analysis and chunks
+    remain attached to the same contract.
+    """
+    contract = _owned_contract(user_id, contract_id)
+    if contract["status"] != "completed":
+        raise ContractNotReady()
+
+    result = get_analysis(user_id, contract_id)
+    analysis = result.get("analysis") if result else None
+    proposed = analysis.get("suggested_filename") if isinstance(analysis, dict) else None
+    if not isinstance(proposed, str):
+        raise SuggestedNameUnavailable()
+
+    try:
+        # Import on demand like the rest of the AI package, so the API can
+        # still start when optional AI dependencies are not installed.
+        from ai_backend.analysis import safe_filename
+        name = safe_filename(proposed)
+    except ImportError as error:
+        raise AiNotConfigured("AI Backend packages are not installed") from error
+    except ValueError as error:
+        raise SuggestedNameUnavailable() from error
+
+    if name == "document.pdf":
+        raise SuggestedNameUnavailable()
+    if name == contract["file_name"]:
+        return contract
+
+    client = _data_client()
+    response = _db(lambda: client.table("contracts")
+        .update({"file_name": name})
+        .eq("id", contract_id)
+        .eq("user_id", user_id)
+        .eq("status", "completed")
+        .execute())
+    if not response.data:
+        # A concurrent delete must still appear as 404; a concurrent status
+        # change means the analysis is no longer ready to name the contract.
+        _owned_contract(user_id, contract_id)
+        raise ContractNotReady()
+    return _owned_contract(user_id, contract_id)
+
+
+def mark_interrupted_analysis_failed(
+    user_id: str, contract_id: str, *, now: datetime | None = None,
+) -> bool:
+    """Operator recovery after every worker has been stopped.
+
+    An in-process background task cannot survive a server restart. Only an
+    unchanged processing row older than an hour may be reset for a retry.
+    The command-line caller requires an explicit workers-stopped flag.
+    """
+    contract = _owned_contract(user_id, contract_id)
+    if contract["status"] != "processing":
+        return False
+
+    updated_at = contract["updated_at"]
+    last_update = (
+        datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        if isinstance(updated_at, str) else updated_at
+    )
+    if not isinstance(last_update, datetime) or last_update.tzinfo is None:
+        raise ValueError("Contract updated_at must include a timezone")
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        raise ValueError("Current time must include a timezone")
+    if current_time - last_update < MIN_STALE_PROCESSING_AGE:
+        return False
+
+    client = _data_client()
+    response = _db(lambda: client.table("contracts")
+        .update({"status": "failed"})
+        .eq("id", contract_id)
+        .eq("user_id", user_id)
+        .eq("status", "processing")
+        .eq("updated_at", updated_at)
+        .execute())
+    return bool(response.data)
 
 
 # ---------- questions about a contract ----------

@@ -310,13 +310,15 @@ textarea.input { height: auto; min-height: 88px; padding: 7px 12px; line-height:
 
 /* Contract details */
 .detail-error { margin: 0 0 16px; }
-.detail-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.detail-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.suggested-filename { margin: -8px 0 18px; color: var(--text-soft); font-size: 13px; overflow-wrap: anywhere; }
 .meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-bottom: 20px; overflow: hidden; background: var(--line); }
 .meta div { padding: 14px 20px; background: var(--surface); }
 .meta span { display: block; color: var(--text-soft); font-size: 12px; }
 .meta strong { font-weight: 500; }
 .tab-panel { padding: 20px; }
 .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.detail-grid-single { grid-template-columns: minmax(0, 1fr); }
 .detail-box { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); }
 .detail-box h3 { font-size: 14px; }
 .detail-box p { margin-top: 4px; color: var(--text-soft); font-size: 13px; }
@@ -378,7 +380,7 @@ textarea.input { height: auto; min-height: 88px; padding: 7px 12px; line-height:
 .cited-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .cited-list li { padding: 10px 12px; border: 1px solid var(--line); border-inline-start: 3px solid var(--accent); border-radius: var(--radius); font-size: 14px; }
 .risk-list li { border-inline-start-color: var(--warning); }
-.thread { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.thread { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; direction: ltr; }
 .ask-body.has-thread { display: flex; flex-direction: column; place-items: stretch; justify-content: flex-start; max-height: max(320px, calc(100dvh - 360px)); overflow-y: auto; }
 .ask-body.has-thread .thread { margin-top: 0; }
 .bubble-assistant .sources { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; }
@@ -403,7 +405,7 @@ textarea.input { height: auto; min-height: 88px; padding: 7px 12px; line-height:
 .assistant-scope { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface-muted); font-size: 13px; }
 .assistant-scope label { flex: none; color: var(--text-soft); }
 .assistant-scope select.input { height: 32px; font-size: 13px; }
-.assistant-log { display: flex; flex: 1; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto; overscroll-behavior: contain; }
+.assistant-log { display: flex; flex: 1; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto; overscroll-behavior: contain; direction: ltr; }
 .assistant-welcome { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .bubble { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
 .bubble-user { align-self: flex-end; border-end-end-radius: 4px; background: var(--accent); color: var(--on-accent); white-space: pre-wrap; }

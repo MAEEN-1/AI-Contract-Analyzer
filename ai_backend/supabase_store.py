@@ -9,6 +9,7 @@ from supabase import create_client
 BUCKET = "contract-pdfs"
 DIMENSION = 1536
 MAX_PDF_BYTES = 50 * 1024 * 1024
+DB_CONNECT_TIMEOUT_SECONDS = 10
 
 
 def _contract_id(value: str) -> str:
@@ -28,6 +29,15 @@ def _database_url() -> str:
     if not url:
         raise ValueError("SUPABASE_DB_URL is required for pgvector operations")
     return url
+
+
+def _connect_database(connect=None):
+    # A broken pooler or unreachable network must not hold an analysis job
+    # indefinitely. Keep injected test connections compatible with the
+    # existing one-argument factory interface.
+    if connect is not None:
+        return connect(_database_url())
+    return psycopg.connect(_database_url(), connect_timeout=DB_CONNECT_TIMEOUT_SECONDS)
 
 
 def _vector_literal(vector: list[float]) -> str:
@@ -74,8 +84,7 @@ def replace_contract_chunks(contract_id: str, chunks: list[dict], connect=None) 
         rows.append((contract_id, text, page, _vector_literal(chunk["embedding"])))
 
     # Delete and insert in one transaction so failed reprocessing rolls back.
-    connection_factory = connect or psycopg.connect
-    with connection_factory(_database_url()) as connection:
+    with _connect_database(connect) as connection:
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM public.document_chunks WHERE contract_id = %s::uuid", (contract_id,))
             cursor.executemany(
@@ -97,8 +106,7 @@ def search_contract_chunks(
     if not 1 <= top_k <= 20:
         raise ValueError("top_k must be between 1 and 20")
     vector = _vector_literal(question_embedding)
-    connection_factory = connect or psycopg.connect
-    with connection_factory(_database_url()) as connection:
+    with _connect_database(connect) as connection:
         with connection.cursor() as cursor:
             # The contract filter is mandatory for every vector search.
             cursor.execute(

@@ -7,7 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import os
-app = FastAPI()
+
+# On the production server the interactive docs (/docs, /redoc, /openapi.json)
+# are turned off, so the API's full list of endpoints is not public.
+is_production = os.getenv("MAEEN_ENV", "").strip().lower() == "production"
+
+if is_production:
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+else:
+    app = FastAPI()
 app.include_router(router)
 app.include_router(contracts_router)
 app.include_router(assistant_router)

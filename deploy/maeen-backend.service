@@ -1,0 +1,41 @@
+# MAEEN backend (FastAPI). setup.sh installs this as
+# /etc/systemd/system/maeen-backend.service.
+[Unit]
+Description=MAEEN backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=maeen
+Group=maeen
+WorkingDirectory=/srv/maeen/app/backend
+Environment=MAEEN_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+# One process on purpose: the rate limits and code-attempt counters live in memory.
+ExecStart=/srv/maeen/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-server-header
+Restart=always
+RestartSec=3
+
+# The backend can read its code and .env but cannot change any file on the server.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

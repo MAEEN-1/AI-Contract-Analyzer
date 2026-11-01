@@ -2,8 +2,9 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from httpx import RequestError
 from services.F_supabase_client import get_supabase_client
-from supabase_auth.errors import AuthApiError, AuthUnknownError
+from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthUnknownError
 
 # A code has 6 to 10 digits, so wrong guesses per email are limited.
 VERIFY_LIMIT = 5
@@ -11,11 +12,17 @@ VERIFY_WINDOW_SECONDS = 600
 
 NEW_ACCOUNT_MAX_AGE = timedelta(seconds=60)
 
+CONTRACTS_BUCKET = "contract-pdfs"
+
 _verify_attempts_by_email: dict[str, deque] = {}
 _verify_lock = threading.Lock()
 
 
 class AccountAlreadyExists(Exception):
+    pass
+
+
+class AccountDeletionFailed(Exception):
     pass
 
 
@@ -124,6 +131,35 @@ def resend_signup_code(email: str):
             "type": "signup",
             "email": email,
         })
+    finally:
+        client.auth.close()
+
+
+def delete_account(user_id: str):
+    client = get_supabase_client()
+
+    try:
+        try:
+            response = client.table("contracts").select("storage_path").eq("user_id", user_id).execute()
+            paths = [row["storage_path"] for row in response.data or []]
+
+            # Storage files are not removed with the user, so they go first. If a
+            # later step fails, the user can retry and nothing is left behind.
+            if paths:
+                client.storage.from_(CONTRACTS_BUCKET).remove(paths)
+        except (RequestError, AuthRetryableError):
+            raise
+        except Exception as error:
+            raise AccountDeletionFailed(user_id) from error
+
+        # The contracts rows, their analysis, chunks and chat history go with the
+        # user (ON DELETE CASCADE on contracts.user_id and chat_history.user_id).
+        try:
+            client.auth.admin.delete_user(user_id)
+        except AuthApiError as error:
+            # 404 means the user is already gone, which is the result asked for.
+            if error.status != 404:
+                raise AccountDeletionFailed(user_id) from error
     finally:
         client.auth.close()
 

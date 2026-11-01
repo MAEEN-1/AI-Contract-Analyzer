@@ -23,6 +23,7 @@ All bodies are JSON, except the contract upload, which is `multipart/form-data`.
 | `POST` | `/api/auth/verify` | `{"email", "code"}` (the 6–10 digit code from the activation email) | `200 {"access_token", "token_type", "expires_in"}`: the account is activated and signed in | `400` wrong or expired code, `422`, `429` (5 attempts per email per 10 minutes, `Retry-After`), `502`, `503` |
 | `POST` | `/api/auth/resend` | `{"email"}` | `200 {"message": ...}` (same reply whether or not the email has an account waiting) | `429` asked again too soon, `502`, `503` |
 | `GET` | `/api/auth/me` | header `Authorization: Bearer <access_token>` | `200 {"id", "email", "first_name", "last_name"}` (names are `null` for accounts created before names were added) | `401` missing/invalid/expired token, `502`, `503` |
+| `DELETE` | `/api/auth/me` | header `Authorization: Bearer <access_token>` | `204`: the user's PDFs are removed from Storage, then the Supabase user is deleted; contracts, analysis results, chunks and chat history go with it (`ON DELETE CASCADE`). Already-deleted users also get `204` | `401`, `502` deletion failed (the user is kept, so it can be retried), `503` |
 | `POST` | `/api/contracts` | form field `file` (the PDF) | `201` contract | `400` empty file, `413` over 50 MB, `415` not a PDF, `401`, `502`, `503` |
 | `GET` | `/api/contracts` | — | `200 [contract, ...]`, the user's own, newest first | `401`, `502`, `503` |
 | `GET` | `/api/contracts/{id}` | — | `200` contract | `404` not found or not the user's, `422` id is not a UUID, `401`, `502`, `503` |

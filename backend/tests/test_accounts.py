@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from supabase_auth.errors import AuthApiError
 
 import services.F_auth_service as auth_service
+from conftest import USER_A, USER_B
 
 SIGNUP = {
     "first_name": "Sara",
@@ -83,3 +85,95 @@ def test_user_already_exists_error_returns_409(client, fake_signup):
     response = client.post("/api/auth/register", json=SIGNUP)
 
     assert response.status_code == 409
+
+
+class FakeAdmin:
+    def __init__(self, error=None):
+        self.error = error
+        self.deleted = []
+
+    def delete_user(self, user_id):
+        if self.error:
+            raise self.error
+        self.deleted.append(user_id)
+
+
+@pytest.fixture
+def fake_deletion(monkeypatch):
+    def use(db, error=None):
+        admin = FakeAdmin(error)
+        db.auth = SimpleNamespace(admin=admin, close=lambda: None)
+        monkeypatch.setattr(auth_service, "get_supabase_client", lambda: db)
+        return admin
+
+    return use
+
+
+def test_delete_account_removes_files_then_user(client, fake_db, fake_deletion, signed_in_as):
+    own_path = fake_db.add_contract(USER_A, "33333333-3333-3333-3333-333333333333")
+    other_path = fake_db.add_contract(USER_B, "44444444-4444-4444-4444-444444444444")
+    admin = fake_deletion(fake_db)
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 204
+    assert own_path not in fake_db.files
+    assert other_path in fake_db.files
+    assert admin.deleted == [USER_A]
+
+
+def test_delete_account_without_contracts(client, fake_db, fake_deletion, signed_in_as):
+    admin = fake_deletion(fake_db)
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 204
+    assert admin.deleted == [USER_A]
+
+
+def test_delete_account_for_user_already_gone(client, fake_db, fake_deletion, signed_in_as):
+    fake_deletion(fake_db, AuthApiError("User not found", 404, "user_not_found"))
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 204
+
+
+def test_delete_account_keeps_user_when_storage_fails(client, fake_db, fake_deletion, signed_in_as):
+    fake_db.add_contract(USER_A, "33333333-3333-3333-3333-333333333333")
+    fake_db.fail_next_query = RuntimeError("database error")
+    admin = fake_deletion(fake_db)
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 502
+    assert admin.deleted == []
+
+
+def test_delete_account_reports_unreachable_service(client, fake_db, fake_deletion, signed_in_as):
+    fake_db.fail_next_query = httpx.ConnectError("offline")
+    fake_deletion(fake_db)
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 503
+
+
+def test_delete_account_reports_auth_refusal(client, fake_db, fake_deletion, signed_in_as):
+    fake_deletion(fake_db, AuthApiError("Not allowed", 403, "not_admin"))
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 502
+
+
+def test_delete_account_requires_sign_in(client):
+    response = client.delete("/api/auth/me")
+
+    assert response.status_code == 401

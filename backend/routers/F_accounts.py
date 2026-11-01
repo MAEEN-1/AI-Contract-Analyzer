@@ -12,6 +12,8 @@ from dependencies.F_auth import get_current_user
 from models.F_account_data import RegisterData, LoginData, VerifyData, ResendData
 from services.F_auth_service import (
     AccountAlreadyExists,
+    AccountDeletionFailed,
+    delete_account,
     register_user,
     login_user,
     take_verify_attempt,
@@ -237,3 +239,21 @@ def me(user=Depends(get_current_user)):
         "first_name": metadata.get("first_name"),
         "last_name": metadata.get("last_name"),
     }
+
+
+@router.delete("/api/auth/me", status_code=204)
+def delete_me(user=Depends(get_current_user)):
+    try:
+        delete_account(user.id)
+
+    except (RequestError, AuthRetryableError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable. Try again later",
+        ) from error
+
+    except (AccountDeletionFailed, AuthUnknownError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Account could not be deleted",
+        ) from error

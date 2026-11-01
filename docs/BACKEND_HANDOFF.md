@@ -28,6 +28,7 @@ All bodies are JSON, except the contract upload, which is `multipart/form-data`.
 | `GET` | `/api/contracts/{id}` | — | `200` contract | `404` not found or not the user's, `422` id is not a UUID, `401`, `502`, `503` |
 | `DELETE` | `/api/contracts/{id}` | — | `204`, no body; the PDF, analyses, chunks and chat go with it | `404`, `422`, `401`, `502`, `503` |
 | `POST` | `/api/assistant/chat` | `{"messages": [{"role", "content"}, ...]}` | `200 {"reply"}` | `422` invalid conversation, `429` over 20 questions in 10 minutes (with `Retry-After`), `401`, `502`, `503` |
+| `POST` | `/api/assistant/chat/stream` | same as `/api/assistant/chat` | `200` server-sent events: `{"delta"}` parts, then `{"done": true}` or `{"error"}` | same as `/api/assistant/chat`, before the first part |
 | `POST` | `/api/contracts/{id}/analyze` | — | `202 {"status": "processing"}`; the analysis runs in the background | `404`, `409` already analyzing, `422`, `429` over 10 analyses an hour, `401`, `502`, `503` |
 | `GET` | `/api/contracts/{id}/analysis` | — | `200 {"analysis", "created_at"}` | `404` contract or analysis not found, `422`, `401`, `502`, `503` |
 | `POST` | `/api/contracts/{id}/chat` | `{"question"}` | `200 {"answer", "sources": [{"page", "text"}]}` | `409` analysis not complete, `404`, `422`, `429` (shared with the assistant), `401`, `502`, `503` |
@@ -76,6 +77,7 @@ The round button in the corner of every signed-in page opens a chat with the MAE
 - The assistant's instructions are `INSTRUCTIONS` in `services/F_assistant_service.py`: it replies in the user's language, in formal Arabic or English, stays on MAEEN and contracts, says it cannot see the user's contracts, gives general information rather than legal advice, and never invents legal citations.
 - Limit: 20 questions per user per 10 minutes, kept in memory. It resets when the server restarts and is per process; move it to a shared store if the backend runs on several processes.
 - Errors: OpenAI unreachable, overloaded, or rejecting the key or model gives `503`; any other OpenAI failure or an empty reply gives `502`. The cause is logged under `maeen.assistant`, without the conversation text.
+- Streaming: the frontend uses `POST /api/assistant/chat/stream`, which sends the same request to OpenAI with `stream=True` and passes the reply on as it is written. Each event is a `data: {...}` line followed by a blank line. The endpoint waits for the first words before answering, so the errors above still come back as a status. A failure after that ends the stream with `{"error"}` instead of `{"done": true}`. The two endpoints share the 20-question limit.
 
 ## Auth flow for the frontend
 

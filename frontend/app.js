@@ -130,6 +130,8 @@
       sparkle: '<path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
       refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
       close: '<path d="M6 6l12 12M18 6 6 18"/>',
+      minimize: '<path d="M6 12h12"/>',
+      restore: '<path d="m6 15 6-6 6 6"/>',
       send: '<path d="M12 19V5m-6 6 6-6 6 6"/>'
     };
     return '<svg class="ui-icon icon-' + name + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths[name] + '</svg>';
@@ -424,6 +426,7 @@
       "<section class='assistant-panel' id='assistant-panel' role='dialog' aria-modal='false' aria-labelledby='assistant-title' hidden>",
       "<header class='assistant-head'><h2 id='assistant-title'>", icon("sparkle"), "<span>", t("MAEEN Assistant", "مساعد معين"), "</span></h2>",
       "<div class='assistant-head-actions'>",
+      "<button class='icon-button' type='button' data-assistant-minimize aria-expanded='true' aria-label='", t("Minimize assistant", "تصغير المساعد"), "' title='", t("Minimize", "تصغير"), "'>", icon("minimize"), "</button>",
       "<button class='icon-button' type='button' data-assistant-new aria-label='", t("New conversation", "محادثة جديدة"), "' title='", t("New conversation", "محادثة جديدة"), "'>", icon("refresh"), "</button>",
       "<button class='icon-button' type='button' data-assistant-close aria-label='", t("Close assistant", "إغلاق المساعد"), "' title='", t("Close", "إغلاق"), "'>", icon("close"), "</button>",
       "</div></header>",
@@ -768,6 +771,12 @@
           if (event.lengthComputable) options.onProgress(event.loaded / event.total);
         });
       }
+      // For replies sent in parts: receives the reply text so far each time more arrives.
+      if (options.onText) {
+        xhr.addEventListener("progress", function () {
+          if (xhr.status >= 200 && xhr.status < 300) options.onText(xhr.responseText);
+        });
+      }
       function fail(status, detail) {
         var error = new Error("Request failed with status " + status);
         error.status = status;
@@ -787,8 +796,12 @@
           reject(expired);
           return;
         }
-        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-        else fail(xhr.status, data && data.detail);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (options.onText) options.onText(xhr.responseText);
+          resolve(data);
+        } else {
+          fail(xhr.status, data && data.detail);
+        }
       });
       xhr.addEventListener("error", function () { fail(0); });
       xhr.addEventListener("timeout", function () { fail(0); });
@@ -1736,11 +1749,14 @@
     var assistantInput = document.getElementById("assistant-input");
     var assistantSend = assistantForm.querySelector(".assistant-send");
     var assistantContract = document.getElementById("assistant-contract");
-    var wideScreen = window.matchMedia("(min-width: 801px)");
+    var assistantHead = assistantPanel.querySelector(".assistant-head");
+    var assistantMinimize = assistantPanel.querySelector("[data-assistant-minimize]");
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     // The backend reads the latest 12 messages; the tab keeps up to 40.
     var ASSISTANT_SENT = 12;
     var ASSISTANT_KEPT = 40;
-    var assistantState = { messages: [], open: false, scope: "" };
+    // place is where the user dragged the window, or null for its corner by the button.
+    var assistantState = { messages: [], open: false, scope: "", minimized: false, place: null };
     var assistantBusy = false;
     var contractsLoaded = false;
     var typingBubble = null;
@@ -1754,6 +1770,9 @@
         });
         assistantState.open = savedChat.open === true;
         assistantState.scope = typeof savedChat.scope === "string" ? savedChat.scope : "";
+        assistantState.minimized = savedChat.minimized === true;
+        var place = savedChat.place;
+        if (place && isFinite(place.left) && isFinite(place.top)) assistantState.place = { left: Number(place.left), top: Number(place.top) };
       }
     } catch (error) { /* Start with an empty conversation. */ }
 
@@ -1879,11 +1898,97 @@
       assistantContract.disabled = busy;
       assistantForm.setAttribute("aria-busy", busy ? "true" : "false");
     }
-    function finishReply(message) {
-      hideTyping();
+    // Writes a reply into its bubble a few letters at a time. When the text arrives faster
+    // than it is written, the writing speeds up so it never falls far behind.
+    function replyWriter() {
+      var bubble = null;
+      var text = "";
+      var shown = 0;
+      var timer = null;
+      var whenDone = null;
+      function draw() {
+        var following = assistantLog.scrollHeight - assistantLog.scrollTop - assistantLog.clientHeight < 48;
+        var visible = text.slice(0, shown);
+        // Hides a bold mark until its closing mark is written too.
+        if (shown < text.length) {
+          visible = visible.replace(/\*+$/, "");
+          if (visible.split("**").length % 2 === 0) {
+            var mark = visible.lastIndexOf("**");
+            visible = visible.slice(0, mark) + visible.slice(mark + 2);
+          }
+        }
+        bubble.textContent = "";
+        bubble.appendChild(formatReply(visible));
+        if (following) scrollAssistant();
+      }
+      function step() {
+        var behind = text.length - shown;
+        if (behind > 0) {
+          shown = reduceMotion.matches ? text.length : shown + Math.min(6, Math.ceil(behind / 20));
+          // Keeps a two-part character, such as an emoji, whole.
+          var code = text.charCodeAt(shown - 1);
+          if (code >= 0xd800 && code <= 0xdbff) shown += 1;
+          draw();
+          return;
+        }
+        clearInterval(timer);
+        timer = null;
+        if (whenDone) whenDone();
+      }
+      return {
+        add: function (part) {
+          if (!bubble) {
+            hideTyping();
+            bubble = answerBubble("", null);
+            // Screen readers read the reply once it is complete.
+            bubble.setAttribute("aria-busy", "true");
+            assistantLog.appendChild(bubble);
+          }
+          text += part;
+          if (!timer) timer = setInterval(step, 20);
+        },
+        // Resolves once the whole reply is on screen.
+        finish: function (sources) {
+          return new Promise(function (resolve) {
+            whenDone = function () {
+              var shownSources = cleanSources(sources);
+              if (shownSources.length) bubble.appendChild(sourcesBlock(shownSources));
+              bubble.removeAttribute("aria-busy");
+              scrollAssistant();
+              resolve();
+            };
+            if (!timer) whenDone();
+          });
+        },
+        cancel: function () {
+          clearInterval(timer);
+          timer = null;
+          if (bubble) bubble.remove();
+        }
+      };
+    }
+    // The general reply arrives as server-sent events: {"delta"} parts, then {"done"} or {"error"}.
+    function streamReader(onDelta) {
+      var read = 0;
+      var result = { done: false, error: false };
+      result.take = function (text) {
+        var end;
+        while ((end = text.indexOf("\n\n", read)) !== -1) {
+          var block = text.slice(read, end);
+          read = end + 2;
+          if (block.indexOf("data: ") !== 0) continue;
+          var event;
+          try { event = JSON.parse(block.slice(6)); } catch (error) { continue; }
+          if (typeof event.delta === "string") onDelta(event.delta);
+          else if (event.done) result.done = true;
+          else if (event.error) result.error = true;
+        }
+      };
+      return result;
+    }
+    function saveReply(message) {
       assistantState.messages.push(message);
       saveAssistant();
-      addMessage(message);
     }
     function askAssistant() {
       if (assistantBusy) return;
@@ -1892,23 +1997,34 @@
       setAssistantBusy(true);
       showTyping();
 
+      var writer = replyWriter();
       var reply;
       if (last.contractId) {
         reply = request("POST", "/api/contracts/" + encodeURIComponent(last.contractId) + "/chat", { json: { question: last.content }, timeout: 90000 }).then(function (data) {
           if (!data || typeof data.answer !== "string" || !data.answer.trim()) throw Object.assign(new Error("Empty answer"), { status: 502 });
-          finishReply({ role: "assistant", content: data.answer.trim(), sources: cleanSources(data.sources), contractId: last.contractId });
+          var message = { role: "assistant", content: data.answer.trim(), sources: cleanSources(data.sources), contractId: last.contractId };
+          saveReply(message);
+          writer.add(message.content);
+          return writer.finish(message.sources);
         });
       } else {
         var recent = assistantState.messages.slice(-ASSISTANT_SENT).map(function (message) {
           return { role: message.role, content: message.content.slice(0, 8000) };
         });
-        reply = request("POST", "/api/assistant/chat", { json: { messages: recent }, timeout: 60000 }).then(function (data) {
-          if (!data || typeof data.reply !== "string" || !data.reply.trim()) throw Object.assign(new Error("Empty reply"), { status: 502 });
-          finishReply({ role: "assistant", content: data.reply.trim() });
+        var written = "";
+        var stream = streamReader(function (part) {
+          written += part;
+          writer.add(part);
+        });
+        reply = request("POST", "/api/assistant/chat/stream", { json: { messages: recent }, timeout: 60000, onText: stream.take }).then(function () {
+          if (!stream.done || stream.error || !written.trim()) throw Object.assign(new Error("Reply interrupted"), { status: 502 });
+          saveReply({ role: "assistant", content: written.trim() });
+          return writer.finish();
         });
       }
       reply.catch(function (error) {
         hideTyping();
+        writer.cancel();
         if (!error.redirected) showAssistantError(last.contractId ? contractQuestionError(error) : errorMessage(error));
       }).then(function () {
         setAssistantBusy(false);
@@ -1932,13 +2048,40 @@
       askAssistant();
     }
 
+    // Keeps a dragged window fully on screen, for example after the browser window shrinks.
+    function placeAssistant() {
+      var place = assistantState.place;
+      if (!place || assistantPanel.hidden) return;
+      var maxLeft = Math.max(8, window.innerWidth - assistantPanel.offsetWidth - 8);
+      var maxTop = Math.max(8, window.innerHeight - assistantPanel.offsetHeight - 8);
+      place.left = Math.round(Math.min(Math.max(place.left, 8), maxLeft));
+      place.top = Math.round(Math.min(Math.max(place.top, 8), maxTop));
+      assistantPanel.style.left = place.left + "px";
+      assistantPanel.style.top = place.top + "px";
+      assistantPanel.style.right = "auto";
+      assistantPanel.style.bottom = "auto";
+    }
+    // Minimized, the window shrinks to its title bar and stays where it is.
+    function setMinimized(minimized) {
+      assistantState.minimized = minimized;
+      assistantPanel.classList.toggle("is-minimized", minimized);
+      assistantMinimize.innerHTML = icon(minimized ? "restore" : "minimize");
+      assistantMinimize.setAttribute("aria-expanded", minimized ? "false" : "true");
+      assistantMinimize.setAttribute("aria-label", minimized ? t("Restore assistant", "استعادة المساعد") : t("Minimize assistant", "تصغير المساعد"));
+      assistantMinimize.title = minimized ? t("Restore", "استعادة") : t("Minimize", "تصغير");
+      saveAssistant();
+      placeAssistant();
+      if (!minimized) scrollAssistant();
+    }
+
     function openAssistant(focusInput) {
       assistantPanel.hidden = false;
       assistantFab.setAttribute("aria-expanded", "true");
       assistantFab.setAttribute("aria-label", t("Close MAEEN Assistant", "إغلاق مساعد معين"));
-      document.body.classList.add("assistant-open");
       assistantState.open = true;
+      if (focusInput && assistantState.minimized) setMinimized(false);
       saveAssistant();
+      placeAssistant();
       loadContractChoices();
       scrollAssistant();
       if (focusInput) assistantInput.focus();
@@ -1947,16 +2090,52 @@
       assistantPanel.hidden = true;
       assistantFab.setAttribute("aria-expanded", "false");
       assistantFab.setAttribute("aria-label", t("Open MAEEN Assistant", "فتح مساعد معين"));
-      document.body.classList.remove("assistant-open");
       assistantState.open = false;
       saveAssistant();
       if (returnFocus) assistantFab.focus();
     }
 
     assistantFab.addEventListener("click", function () {
-      if (assistantPanel.hidden) openAssistant(true);
+      if (assistantPanel.hidden || assistantState.minimized) openAssistant(true);
       else closeAssistant(true);
     });
+    assistantMinimize.addEventListener("click", function () {
+      setMinimized(!assistantState.minimized);
+      if (!assistantState.minimized) assistantInput.focus();
+    });
+
+    // The window moves by dragging its title bar, with a mouse or a finger. A tap on the
+    // bar of a minimized window opens it again.
+    var drag = null;
+    assistantHead.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0 || event.target.closest("button")) return;
+      var box = assistantPanel.getBoundingClientRect();
+      drag = { x: event.clientX, y: event.clientY, left: box.left, top: box.top, moved: false };
+      assistantHead.setPointerCapture(event.pointerId);
+    });
+    assistantHead.addEventListener("pointermove", function (event) {
+      if (!drag) return;
+      var dx = event.clientX - drag.x;
+      var dy = event.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+      drag.moved = true;
+      assistantPanel.classList.add("is-dragging");
+      assistantState.place = { left: drag.left + dx, top: drag.top + dy };
+      placeAssistant();
+    });
+    assistantHead.addEventListener("pointerup", function () {
+      if (!drag) return;
+      var moved = drag.moved;
+      drag = null;
+      assistantPanel.classList.remove("is-dragging");
+      if (moved) saveAssistant();
+      else if (assistantState.minimized) setMinimized(false);
+    });
+    assistantHead.addEventListener("pointercancel", function () {
+      drag = null;
+      assistantPanel.classList.remove("is-dragging");
+    });
+    window.addEventListener("resize", placeAssistant);
     assistantPanel.querySelector("[data-assistant-close]").addEventListener("click", function () { closeAssistant(true); });
     assistantPanel.querySelector("[data-assistant-new]").addEventListener("click", function () {
       if (assistantBusy) return;
@@ -1986,7 +2165,8 @@
     });
 
     renderConversation();
-    // Moving between pages keeps the window open on wide screens; on phones it covers the page, so it starts closed.
-    if (assistantState.open && wideScreen.matches) openAssistant(false);
+    if (assistantState.minimized) setMinimized(true);
+    // Moving between pages keeps the window open, minimized, and where the user left it.
+    if (assistantState.open) openAssistant(false);
   }
 })();

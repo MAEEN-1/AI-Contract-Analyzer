@@ -396,8 +396,12 @@ textarea.input { height: auto; min-height: 88px; padding: 7px 12px; line-height:
 .assistant-fab { position: fixed; inset-inline-end: 24px; bottom: 24px; z-index: 25; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 4px var(--page), 0 0 0 5px var(--line-strong); transition: background-color .15s; }
 .assistant-fab:hover { background: var(--accent-hover); }
 .assistant-fab .ui-icon { width: 24px; height: 24px; }
-.assistant-panel { position: fixed; inset-inline-end: 24px; bottom: 92px; z-index: 26; display: flex; flex-direction: column; width: 380px; height: min(600px, calc(100dvh - 120px)); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
-.assistant-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; padding-inline-start: 16px; border-bottom: 1px solid var(--line); }
+.assistant-panel { position: fixed; inset-inline-end: 24px; bottom: 92px; z-index: 26; display: flex; flex-direction: column; width: 380px; height: min(600px, calc(100dvh - 120px)); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); box-shadow: 0 8px 24px rgb(15 23 42 / .12); }
+.assistant-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; padding-inline-start: 16px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; }
+.assistant-panel.is-dragging .assistant-head { cursor: grabbing; }
+.assistant-panel.is-minimized { height: auto; }
+.assistant-panel.is-minimized > :not(.assistant-head) { display: none; }
+.assistant-panel.is-minimized .assistant-head { border-bottom: 0; }
 .assistant-head h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; }
 .assistant-head h2 .ui-icon { color: var(--accent); }
 .assistant-head-actions { display: flex; gap: 4px; }
@@ -470,8 +474,7 @@ textarea.input { height: auto; min-height: 88px; padding: 7px 12px; line-height:
   .app .content { padding-bottom: 96px; }
   .analysis-state { flex-direction: column; align-items: flex-start; }
   .assistant-fab { inset-inline-end: 16px; bottom: 16px; }
-  .assistant-panel { inset: 0; z-index: 50; width: auto; height: auto; border: 0; border-radius: 0; }
-  body.assistant-open { overflow: hidden; }
+  .assistant-panel { inset-inline-end: 12px; bottom: 80px; width: min(380px, calc(100vw - 24px)); height: min(520px, calc(100dvh - 104px)); }
 }
 @media (max-width: 520px) {
   .header-signup { display: none; }

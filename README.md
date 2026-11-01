@@ -16,6 +16,8 @@ python -m uvicorn main:app --reload
 
 The API is then on `http://127.0.0.1:8000`, with interactive docs at `/docs`.
 
+To run MAEEN on a private server with HTTPS, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Arabic). Setting `MAEEN_ENV=production` turns off the interactive docs.
+
 Run the tests (they use a fake Supabase and never touch MAEEN):
 
 ```bash

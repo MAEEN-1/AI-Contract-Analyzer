@@ -1,0 +1,40 @@
+# MAEEN production site. setup.sh replaces maeen.example.com with the real domain
+# and installs this file as /etc/caddy/Caddyfile. Caddy gets and renews the HTTPS
+# certificate by itself and sends every http:// visit to https://.
+
+maeen.example.com {
+	encode zstd gzip
+
+	# The backend listens on 127.0.0.1 only, so Caddy is the one public door to it.
+	# Only /api/* is passed on: the backend's other paths are never reachable.
+	handle /api/* {
+		request_body {
+			# Contracts are limited to 50 MB by the backend; this stops larger bodies early.
+			max_size 55MB
+		}
+		reverse_proxy 127.0.0.1:8000 {
+			# Streamed assistant replies are passed on as they are written.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		root * /srv/maeen/app/frontend
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# The site loads only its own files; the favicon is a data: image.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/maeen-access.log
+	}
+}

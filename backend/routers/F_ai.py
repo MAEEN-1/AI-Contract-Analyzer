@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from dependencies.F_auth import get_current_user
+from dependencies.F_auth import get_current_user, require_ai_consent
 from models.F_ai_data import AnalysisOut, AnalysisStarted, ChatEntry, ContractAnswer, ContractQuestion
 from models.Y_contract_data import ContractOut
 from services.F_ai_service import (
@@ -79,7 +79,7 @@ def _limit(key: str, limit: int | None = None, window: int | None = None):
 
 
 @router.post("/{contract_id}/analyze", status_code=202, response_model=AnalysisStarted)
-def analyze(contract_id: UUID, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+def analyze(contract_id: UUID, background_tasks: BackgroundTasks, user=Depends(require_ai_consent)):
     _limit(f"analysis:{user.id}", ANALYSIS_LIMIT, ANALYSIS_WINDOW_SECONDS)
     _run(start_analysis, str(user.id), str(contract_id))
     # Runs after the reply is sent; the frontend checks the contract status for the result.
@@ -103,7 +103,7 @@ def rename_from_analysis(contract_id: UUID, user=Depends(get_current_user)):
 
 
 @router.post("/{contract_id}/chat", response_model=ContractAnswer)
-def ask(contract_id: UUID, data: ContractQuestion, user=Depends(get_current_user)):
+def ask(contract_id: UUID, data: ContractQuestion, user=Depends(require_ai_consent)):
     # Shares the assistant's 20 questions per 10 minutes.
     _limit(str(user.id))
     return _run(ask_contract, str(user.id), str(contract_id), data.question)

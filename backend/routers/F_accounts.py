@@ -11,7 +11,11 @@ from supabase_auth.errors import (
 from dependencies.F_auth import get_current_user
 from models.F_account_data import RegisterData, LoginData, VerifyData, ResendData
 from services.F_auth_service import (
+    AI_CONSENT_KEY,
     AccountAlreadyExists,
+    AccountDeletionFailed,
+    delete_account,
+    set_ai_consent,
     register_user,
     login_user,
     take_verify_attempt,
@@ -236,4 +240,50 @@ def me(user=Depends(get_current_user)):
         "email": user.email,
         "first_name": metadata.get("first_name"),
         "last_name": metadata.get("last_name"),
+        "ai_consent_at": metadata.get(AI_CONSENT_KEY),
     }
+
+
+def _update_ai_consent(user_id: str, given: bool):
+    try:
+        return set_ai_consent(user_id, given)
+
+    except (RequestError, AuthRetryableError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable. Try again later",
+        ) from error
+
+    except (AuthApiError, AuthUnknownError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Consent could not be saved",
+        ) from error
+
+
+@router.post("/api/auth/ai-consent")
+def give_ai_consent(user=Depends(get_current_user)):
+    return {"ai_consent_at": _update_ai_consent(user.id, True)}
+
+
+@router.delete("/api/auth/ai-consent")
+def withdraw_ai_consent(user=Depends(get_current_user)):
+    return {"ai_consent_at": _update_ai_consent(user.id, False)}
+
+
+@router.delete("/api/auth/me", status_code=204)
+def delete_me(user=Depends(get_current_user)):
+    try:
+        delete_account(user.id)
+
+    except (RequestError, AuthRetryableError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable. Try again later",
+        ) from error
+
+    except (AccountDeletionFailed, AuthUnknownError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Account could not be deleted",
+        ) from error

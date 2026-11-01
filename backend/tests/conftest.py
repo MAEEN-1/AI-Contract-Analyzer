@@ -170,9 +170,10 @@ def fake_db(monkeypatch):
 
 @pytest.fixture
 def signed_in_as():
-    def sign_in(user_id):
+    def sign_in(user_id, ai_consent=True):
+        metadata = {"ai_consent_at": "2026-11-01T00:00:00+00:00"} if ai_consent else {}
         app.dependency_overrides[get_current_user] = (
-            lambda: SimpleNamespace(id=user_id, email="user@example.com")
+            lambda: SimpleNamespace(id=user_id, email="user@example.com", user_metadata=metadata)
         )
 
     yield sign_in

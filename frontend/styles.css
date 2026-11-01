@@ -510,6 +510,19 @@ textarea.input { height: auto; min-height: 88px; padding: 7px 12px; line-height:
   .tabs { gap: 14px; }
   .composer { flex-direction: column; align-items: stretch; }
 }
+/* Touch screens (phones and tablets, on the website and in the iOS app): iPhone
+   zooms into any text box under 16px, and fingers need 44px targets (Apple HIG).
+   Computers with a mouse keep the compact sizes. */
+@media (pointer: coarse) {
+  :root { --control: 44px; }
+  .input, .assistant-scope select.input { font-size: 16px; }
+  .assistant-scope select.input { height: 44px; }
+  .assistant-head .icon-button { width: 44px; height: 44px; }
+  .suggestion { height: 44px; }
+  .fav-button { width: 44px; height: 44px; }
+  .consent-state .button-link { min-height: 44px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
   .assistant-typing i { animation: none; opacity: .6; }

@@ -14,6 +14,10 @@ NEW_ACCOUNT_MAX_AGE = timedelta(seconds=60)
 
 CONTRACTS_BUCKET = "contract-pdfs"
 
+# When the user agreed to send their data to OpenAI, kept in the Supabase user's
+# user_metadata so it holds on every device. Apple guideline 5.1.2(i) requires it.
+AI_CONSENT_KEY = "ai_consent_at"
+
 _verify_attempts_by_email: dict[str, deque] = {}
 _verify_lock = threading.Lock()
 
@@ -160,6 +164,27 @@ def delete_account(user_id: str):
             # 404 means the user is already gone, which is the result asked for.
             if error.status != 404:
                 raise AccountDeletionFailed(user_id) from error
+    finally:
+        client.auth.close()
+
+
+def set_ai_consent(user_id: str, given: bool) -> str | None:
+    client = get_supabase_client()
+    consent_at = datetime.now(timezone.utc).isoformat() if given else None
+
+    try:
+        # Supabase merges user_metadata keys, so the names stay. None withdraws it.
+        client.auth.admin.update_user_by_id(
+            user_id,
+            {"user_metadata": {AI_CONSENT_KEY: consent_at}},
+        )
+
+        return consent_at
+    except (AttributeError, TypeError) as error:
+        raise AuthUnknownError(
+            "Invalid response from authentication service",
+            error,
+        ) from error
     finally:
         client.auth.close()
 

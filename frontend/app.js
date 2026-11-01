@@ -538,7 +538,7 @@
         p(t("The platform relies on the following providers, each of which receives only the information its service requires:", "تعتمد المنصة على مزودي الخدمة التاليين، ويتلقى كل منهم المعلومات اللازمة لخدمته فقط:")),
         list([
           t("Supabase: account management, the database, and private storage of contract files. Its servers are located in Tokyo, Japan.", "Supabase: إدارة الحسابات وقاعدة البيانات والتخزين الخاص لملفات العقود، وتقع خوادمها في طوكيو باليابان."),
-          t("OpenAI: the text of your contracts, your inquiries, and your assistant messages are sent to OpenAI's artificial intelligence models to produce analyses and answers. Under OpenAI's API data policy, this data is not used to train its models by default.", "OpenAI: يُرسل نص عقودك واستفساراتك ورسائلك إلى المساعد إلى نماذج الذكاء الاصطناعي لدى OpenAI لإعداد التحليلات والإجابات. ووفق سياسة OpenAI لبيانات الواجهة البرمجية، لا تُستخدم هذه البيانات لتدريب نماذجها افتراضيًا."),
+          t("OpenAI: the text of your contracts, your inquiries, and your assistant messages are sent to OpenAI's artificial intelligence models to produce analyses and answers. Nothing is sent until you agree, and you can withdraw your consent at any time from the Account page. Under OpenAI's API data policy, this data is not used to train its models by default.", "OpenAI: يُرسل نص عقودك واستفساراتك ورسائلك إلى المساعد إلى نماذج الذكاء الاصطناعي لدى OpenAI لإعداد التحليلات والإجابات. ولا يُرسل شيء قبل موافقتك، ويمكنك سحب الموافقة في أي وقت من صفحة الحساب. ووفق سياسة OpenAI لبيانات الواجهة البرمجية، لا تُستخدم هذه البيانات لتدريب نماذجها افتراضيًا."),
           t("Google (Gmail): sending verification code emails to your email address.", "Google (Gmail): إرسال رسائل رمز التحقق إلى بريدك الإلكتروني.")
         ])
       ]),
@@ -741,6 +741,7 @@
       "<div class='field-row'><span>", t("Name", "الاسم"), "</span><strong id='account-name' dir='auto'>—</strong></div>",
       "<div class='field-row'><span>", t("Email address", "البريد الإلكتروني"), "</span><strong id='account-email' dir='ltr'>—</strong></div>",
       "<div class='field-row'><span>", t("Account status", "حالة الحساب"), "</span><strong>", t("Signed in", "مسجّل الدخول"), "</strong></div>",
+      "<div class='field-row'><span>", t("AI processing", "المعالجة بالذكاء الاصطناعي"), "</span><div class='consent-state'><strong id='account-ai'>—</strong><button class='button-link' type='button' id='account-ai-toggle' hidden></button></div></div>",
       "<div class='field-row'><span>", t("Privacy", "الخصوصية"), "</span><a class='text-link' href='/privacy/'>", t("Privacy policy", "سياسة الخصوصية"), "</a></div>",
       "</div></section>",
       "<section class='panel panel-pad account-login' aria-labelledby='account-signout-title'><h2 class='section-title' id='account-signout-title'>", t("Sign out", "تسجيل الخروج"), "</h2><p class='muted'>", t("End your session on this device.", "إنهاء الجلسة على هذا الجهاز."), "</p><button class='button button-secondary' type='button' data-sign-out>", t("Sign out", "تسجيل الخروج"), "</button></section>",
@@ -889,6 +890,11 @@
   }
 
   function errorMessage(error) {
+    if (isConsentRefusal(error)) {
+      // Consent was withdrawn elsewhere, so the next attempt asks again.
+      aiConsent = false;
+      return t("Please agree to AI processing to use this service.", "يرجى الموافقة على المعالجة بالذكاء الاصطناعي لاستخدام هذه الخدمة.");
+    }
     if (error.status === 0) return t("Sorry, the service could not be reached. Please check your connection and try again.", "عذرًا، تعذّر الاتصال بالخدمة. يرجى التحقق من الاتصال والمحاولة مرة أخرى.");
     if (error.status === 429) return t("Sorry, too many attempts. Please wait a moment and try again.", "عذرًا، تجاوزت عدد المحاولات المسموح. يرجى الانتظار قليلًا ثم المحاولة مرة أخرى.");
     if (error.status >= 500) return t("Sorry, the service is currently unavailable. Please try again later.", "عذرًا، الخدمة غير متاحة حاليًا. يرجى المحاولة لاحقًا.");
@@ -907,6 +913,86 @@
       button.disabled = false;
       button.removeAttribute("aria-busy");
     }
+  }
+
+  // ---------- AI processing consent ----------
+  // Contract text, inquiries and assistant messages go to OpenAI, so the user must
+  // agree first (Apple guideline 5.1.2(i)). The answer is kept on the account.
+  var aiConsent = null;
+  function isConsentRefusal(error) {
+    return error.status === 403 && error.detail === "AI processing consent is required";
+  }
+  function saveAiConsent(given) {
+    return request(given ? "POST" : "DELETE", "/api/auth/ai-consent").then(function (data) {
+      aiConsent = Boolean(data && data.ai_consent_at);
+      return data;
+    });
+  }
+  // Resolves true once the user agreed, now or before; false when they cancel.
+  function askAiConsent() {
+    var dialog = document.createElement("dialog");
+    dialog.className = "consent-dialog";
+    dialog.setAttribute("aria-labelledby", "consent-title");
+    dialog.innerHTML = [
+      "<div>",
+      "<h2 id='consent-title'>", t("AI processing", "المعالجة بالذكاء الاصطناعي"), "</h2>",
+      "<p>", t("To analyze contracts and answer inquiries, MAEEN sends the following to OpenAI's artificial intelligence models:", "لتحليل العقود والإجابة عن الاستفسارات، ترسل منصة معين ما يلي إلى نماذج الذكاء الاصطناعي لدى OpenAI:"), "</p>",
+      "<ul><li>", t("The text of the contracts you upload", "نص العقود التي ترفعها"), "</li><li>", t("Your inquiries about your contracts", "استفساراتك عن عقودك"), "</li><li>", t("Your messages to MAEEN Assistant", "رسائلك إلى مساعد معين"), "</li></ul>",
+      "<p class='muted'>", t("Your name and email address are not sent. You can withdraw your consent at any time from the Account page.", "لا يُرسل اسمك ولا بريدك الإلكتروني. ويمكنك سحب موافقتك في أي وقت من صفحة الحساب."), " <a class='text-link' href='/privacy/'>", t("Privacy policy", "سياسة الخصوصية"), "</a></p>",
+      "<p class='alert' role='alert' hidden></p>",
+      "<div class='form-actions'><button class='button button-secondary' type='button' data-consent-cancel>", t("Cancel", "إلغاء"), "</button><button class='button button-primary' type='button' data-consent-agree>", t("Agree and continue", "الموافقة والمتابعة"), "</button></div>",
+      "</div>"
+    ].join("");
+    if (location.protocol === "file:") dialog.querySelector("a").href = pageUrl("/privacy/");
+    document.body.appendChild(dialog);
+    var agree = dialog.querySelector("[data-consent-agree]");
+    var failure = dialog.querySelector(".alert");
+    return new Promise(function (resolve) {
+      // Each button closes the dialog itself: the dialog's close event does not
+      // always fire, for example while the page is in the background.
+      var done = false;
+      function finish(given) {
+        if (done) return;
+        done = true;
+        if (dialog.open) dialog.close();
+        dialog.remove();
+        resolve(given);
+      }
+      agree.addEventListener("click", function () {
+        failure.hidden = true;
+        setBusy(agree, true, t("Saving…", "جارٍ الحفظ…"));
+        saveAiConsent(true).then(function () {
+          finish(true);
+        }).catch(function (error) {
+          if (error.redirected) return;
+          setBusy(agree, false);
+          failure.textContent = errorMessage(error);
+          failure.hidden = false;
+        });
+      });
+      dialog.querySelector("[data-consent-cancel]").addEventListener("click", function () { finish(false); });
+      // Escape cancels too.
+      dialog.addEventListener("cancel", function (event) {
+        event.preventDefault();
+        finish(false);
+      });
+      dialog.showModal();
+    });
+  }
+  function ensureAiConsent() {
+    var known = aiConsent !== null ? Promise.resolve(aiConsent) : request("GET", "/api/auth/me").then(function (user) {
+      aiConsent = Boolean(user.ai_consent_at);
+      return aiConsent;
+    });
+    return known.then(function (given) { return given || askAiConsent(); });
+  }
+  // Runs an action that uses AI only after the user agreed.
+  function withAiConsent(action) {
+    ensureAiConsent().then(function (given) {
+      if (given) action();
+    }).catch(function (error) {
+      if (!error.redirected) showToast(errorMessage(error));
+    });
   }
 
   // Removes a one-time flag such as ?uploaded=1 from the address after it is shown.
@@ -1388,6 +1474,13 @@
         showUploadError(t("Please select the contract file first.", "يرجى اختيار ملف العقد أولًا."));
         return;
       }
+      // The contract is analyzed right after upload, so consent comes first.
+      try {
+        if (!(await ensureAiConsent())) return;
+      } catch (error) {
+        if (!error.redirected) showUploadError(errorMessage(error));
+        return;
+      }
       var file = selectedFile;
       var form = new FormData();
       form.append("file", file);
@@ -1490,7 +1583,7 @@
       button.type = "button";
       button.className = "button button-primary";
       button.textContent = status === "failed" ? t("Retry analysis", "إعادة التحليل") : t("Analyze contract", "تحليل العقد");
-      button.addEventListener("click", function () { startAnalysis(button); });
+      button.addEventListener("click", function () { withAiConsent(function () { startAnalysis(button); }); });
       analysisState.appendChild(text);
       analysisState.appendChild(button);
     }
@@ -1687,7 +1780,7 @@
         return;
       }
       var question = readQuestion(detailQuestion);
-      if (question) sendContractQuestion(contractId, question, detailThread, detailForm.querySelector("[type='submit']"), detailQuestion);
+      if (question) withAiConsent(function () { sendContractQuestion(contractId, question, detailThread, detailForm.querySelector("[type='submit']"), detailQuestion); });
     });
 
     if (takeQueryFlag("uploaded")) showToast(t("The contract has been uploaded.", "تم رفع العقد بنجاح."));
@@ -1796,8 +1889,11 @@
       }
       var question = readQuestion(askInput);
       if (!question) return;
-      showThread(true);
-      sendContractQuestion(askContract.value, question, askThread, askForm.querySelector("[type='submit']"), askInput);
+      var askedContract = askContract.value;
+      withAiConsent(function () {
+        showThread(true);
+        sendContractQuestion(askedContract, question, askThread, askForm.querySelector("[type='submit']"), askInput);
+      });
     });
     askInput.addEventListener("keydown", function (event) {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
@@ -1812,8 +1908,38 @@
       // Accounts created before names were added have none, so the dash stays.
       var fullName = [user.first_name, user.last_name].filter(Boolean).join(" ");
       if (fullName) document.getElementById("account-name").textContent = fullName;
+      aiConsent = Boolean(user.ai_consent_at);
+      showAiConsent(user.ai_consent_at);
     }).catch(function (error) {
       if (!error.redirected) showToast(errorMessage(error));
+    });
+
+    var aiState = document.getElementById("account-ai");
+    var aiToggle = document.getElementById("account-ai-toggle");
+    function showAiConsent(consentAt) {
+      aiState.textContent = consentAt
+        ? t("Allowed since ", "مسموح بها منذ ") + formatDate(consentAt)
+        : t("Not allowed", "غير مسموح بها");
+      aiToggle.textContent = consentAt ? t("Withdraw consent", "سحب الموافقة") : t("Allow", "السماح");
+      aiToggle.hidden = false;
+    }
+    aiToggle.addEventListener("click", function () {
+      if (!aiConsent) {
+        askAiConsent().then(function (given) {
+          if (given) showAiConsent(new Date().toISOString());
+        });
+        return;
+      }
+      setBusy(aiToggle, true, t("Saving…", "جارٍ الحفظ…"));
+      saveAiConsent(false).then(function () {
+        setBusy(aiToggle, false);
+        showAiConsent(null);
+        showToast(t("Your consent has been withdrawn. AI services will ask for it again before use.", "تم سحب موافقتك. وستطلب خدمات الذكاء الاصطناعي الموافقة مجددًا قبل استخدامها."));
+      }).catch(function (error) {
+        if (error.redirected) return;
+        setBusy(aiToggle, false);
+        showToast(errorMessage(error));
+      });
     });
 
     // Deleting the account asks for a ticked confirmation first, inside the page,
@@ -1965,7 +2091,7 @@
       retry.textContent = t("Try again", "إعادة المحاولة");
       retry.addEventListener("click", function () {
         clearAssistantError();
-        askAssistant();
+        withAiConsent(askAssistant);
       });
       retryBubble.appendChild(retry);
       assistantLog.appendChild(retryBubble);
@@ -2156,6 +2282,10 @@
     function sendQuestion(text) {
       var question = text.trim().slice(0, 2000);
       if (!question || assistantBusy) return;
+      withAiConsent(function () { addQuestion(question); });
+    }
+    function addQuestion(question) {
+      if (assistantBusy) return;
       clearAssistantError();
       var suggestions = assistantLog.querySelector(".assistant-suggestions");
       if (suggestions) suggestions.remove();

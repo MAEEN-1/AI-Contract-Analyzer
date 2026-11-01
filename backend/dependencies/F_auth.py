@@ -10,7 +10,7 @@ from supabase_auth.errors import (
 from httpx import RequestError
 from pydantic import ValidationError
 
-from services.F_auth_service import get_user_from_token
+from services.F_auth_service import AI_CONSENT_KEY, get_user_from_token
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -73,6 +73,19 @@ def get_current_user(
             status_code=401,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user
+
+
+def require_ai_consent(user=Depends(get_current_user)):
+    """For endpoints that send the user's data to OpenAI."""
+    metadata = user.user_metadata or {}
+
+    if not metadata.get(AI_CONSENT_KEY):
+        raise HTTPException(
+            status_code=403,
+            detail="AI processing consent is required",
         )
 
     return user

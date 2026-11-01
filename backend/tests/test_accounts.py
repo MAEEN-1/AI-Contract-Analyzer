@@ -177,3 +177,90 @@ def test_delete_account_requires_sign_in(client):
     response = client.delete("/api/auth/me")
 
     assert response.status_code == 401
+
+
+class FakeConsentAdmin:
+    def __init__(self, error=None):
+        self.error = error
+        self.updates = []
+
+    def update_user_by_id(self, user_id, attributes):
+        if self.error:
+            raise self.error
+        self.updates.append((user_id, attributes))
+
+
+@pytest.fixture
+def fake_consent(monkeypatch):
+    def use(error=None):
+        admin = FakeConsentAdmin(error)
+        client = SimpleNamespace(auth=SimpleNamespace(admin=admin, close=lambda: None))
+        monkeypatch.setattr(auth_service, "get_supabase_client", lambda: client)
+        return admin
+
+    return use
+
+
+def test_give_ai_consent_saves_the_time(client, fake_consent, signed_in_as):
+    admin = fake_consent()
+    signed_in_as(USER_A, ai_consent=False)
+
+    response = client.post("/api/auth/ai-consent")
+
+    assert response.status_code == 200
+    consent_at = response.json()["ai_consent_at"]
+    assert datetime.fromisoformat(consent_at).tzinfo is not None
+    assert admin.updates == [(USER_A, {"user_metadata": {"ai_consent_at": consent_at}})]
+
+
+def test_withdraw_ai_consent_clears_it(client, fake_consent, signed_in_as):
+    admin = fake_consent()
+    signed_in_as(USER_A)
+
+    response = client.delete("/api/auth/ai-consent")
+
+    assert response.status_code == 200
+    assert response.json() == {"ai_consent_at": None}
+    assert admin.updates == [(USER_A, {"user_metadata": {"ai_consent_at": None}})]
+
+
+def test_ai_consent_reports_unreachable_service(client, fake_consent, signed_in_as):
+    fake_consent(httpx.ConnectError("offline"))
+    signed_in_as(USER_A, ai_consent=False)
+
+    assert client.post("/api/auth/ai-consent").status_code == 503
+
+
+def test_ai_consent_reports_auth_refusal(client, fake_consent, signed_in_as):
+    fake_consent(AuthApiError("Not allowed", 403, "not_admin"))
+    signed_in_as(USER_A, ai_consent=False)
+
+    assert client.post("/api/auth/ai-consent").status_code == 502
+
+
+def test_ai_consent_requires_sign_in(client):
+    assert client.post("/api/auth/ai-consent").status_code == 401
+    assert client.delete("/api/auth/ai-consent").status_code == 401
+
+
+def test_me_reports_ai_consent(client, signed_in_as):
+    signed_in_as(USER_A)
+
+    response = client.get("/api/auth/me")
+
+    assert response.json()["ai_consent_at"] == "2026-11-01T00:00:00+00:00"
+
+
+@pytest.mark.parametrize("method, path, body", [
+    ("post", "/api/contracts/33333333-3333-3333-3333-333333333333/analyze", None),
+    ("post", "/api/contracts/33333333-3333-3333-3333-333333333333/chat", {"question": "What is the notice period?"}),
+    ("post", "/api/assistant/chat", {"messages": [{"role": "user", "content": "Hello"}]}),
+    ("post", "/api/assistant/chat/stream", {"messages": [{"role": "user", "content": "Hello"}]}),
+])
+def test_ai_endpoints_require_consent(client, fake_db, signed_in_as, method, path, body):
+    signed_in_as(USER_A, ai_consent=False)
+
+    response = getattr(client, method)(path, json=body)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "AI processing consent is required"

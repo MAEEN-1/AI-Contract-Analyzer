@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from dependencies.F_auth import get_current_user
+from dependencies.F_auth import require_ai_consent
 from models.F_assistant_data import AssistantReply, AssistantRequest
 from services.F_assistant_service import (
     AssistantFailed,
@@ -50,7 +50,7 @@ def _answer(action, data: AssistantRequest, user):
 
 
 @router.post("/api/assistant/chat", response_model=AssistantReply)
-def chat(data: AssistantRequest, user=Depends(get_current_user)):
+def chat(data: AssistantRequest, user=Depends(require_ai_consent)):
     return {"reply": _answer(generate_reply, data, user)}
 
 
@@ -73,7 +73,7 @@ def _reply_events(parts: Iterator[str]) -> Iterator[str]:
 
 
 @router.post("/api/assistant/chat/stream")
-def chat_stream(data: AssistantRequest, user=Depends(get_current_user)):
+def chat_stream(data: AssistantRequest, user=Depends(require_ai_consent)):
     """Sends the reply in parts as server-sent events, so it shows as it is written."""
     parts = _answer(stream_reply, data, user)
     return StreamingResponse(

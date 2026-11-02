@@ -1,0 +1,8 @@
+node_modules/
+# Built by npm run build:web from ../frontend
+www/
+# Xcode and Swift Package Manager build output
+ios/App/build/
+ios/DerivedData/
+*.xcuserstate
+xcuserdata/

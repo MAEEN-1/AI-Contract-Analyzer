@@ -1,0 +1,49 @@
+# Builds the MAEEN iOS app (mobile/) on Codemagic's Macs and uploads it to TestFlight.
+# Setup steps are in docs/IOS_APP.md. Start a build from the Codemagic dashboard.
+workflows:
+  ios-testflight:
+    name: MAEEN iOS to TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      # The App Store Connect API key's name in Codemagic: Team settings -> Integrations.
+      app_store_connect: MAEEN App Store Connect
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.maeen.contractanalyzer
+      vars:
+        # The private server's https address (docs/DEPLOYMENT.md). The app talks only to it.
+        MAEEN_API_URL: https://maeen.example.com
+        # App Store Connect -> the app -> App Information -> Apple ID (a number).
+        APP_STORE_APPLE_ID: "0000000000"
+      node: 22
+      xcode: latest
+    scripts:
+      - name: Install Capacitor
+        working_directory: mobile
+        script: npm ci
+      - name: Build the app copy of the website
+        working_directory: mobile
+        script: npm run build:web
+      - name: Copy it into the iOS project
+        working_directory: mobile
+        script: npx cap sync ios
+      - name: Use the App Store signing profile
+        script: xcode-project use-profiles --project mobile/ios/App/App.xcodeproj
+      - name: Build the ipa with the next build number
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          BUILD_NUMBER=$((LATEST + 1))
+          echo "Build number $BUILD_NUMBER"
+          xcode-project build-ipa \
+            --project mobile/ios/App/App.xcodeproj \
+            --scheme App \
+            --archive-xcargs "CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

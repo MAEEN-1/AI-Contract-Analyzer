@@ -18,6 +18,8 @@ The API is then on `http://127.0.0.1:8000`, with interactive docs at `/docs`.
 
 To run MAEEN on a private server with HTTPS, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Arabic). Setting `MAEEN_ENV=production` turns off the interactive docs.
 
+The iOS app lives in `mobile/`: the same frontend wrapped with Capacitor, built and sent to TestFlight by Codemagic (`codemagic.yaml`). Setup is in [docs/IOS_APP.md](docs/IOS_APP.md) (Arabic).
+
 Run the tests (they use a fake Supabase and never touch MAEEN):
 
 ```bash

@@ -1,0 +1,8 @@
+{
+  "appId": "com.maeen.contractanalyzer",
+  "appName": "MAEEN",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "always"
+  }
+}

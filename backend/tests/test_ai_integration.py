@@ -248,6 +248,50 @@ def test_analysis_endpoints_require_sign_in(client, fake_db, fake_ai):
     assert client.get(f"/api/contracts/{CONTRACT}/analysis").status_code == 401
 
 
+def test_conversation_overview_is_scoped_to_user_and_shows_latest(client, fake_db, fake_ai, signed_in_as):
+    fake_db.tables["chat_history"] = [
+        {"user_id": USER_A, "contract_id": CONTRACT, "question": "Old", "created_at": "2026-10-01T00:00:00Z"},
+        {"user_id": USER_A, "contract_id": CONTRACT, "question": "Latest", "created_at": "2026-10-02T00:00:00Z"},
+        {"user_id": USER_B, "contract_id": "other", "question": "Private", "created_at": "2026-10-03T00:00:00Z"},
+    ]
+    assert client.get("/api/contracts/conversations/history").status_code == 401
+    signed_in_as(USER_A)
+    response = client.get("/api/contracts/conversations/history")
+    assert response.status_code == 200
+    assert response.json() == [{"contract_id": CONTRACT, "question": "Latest", "created_at": "2026-10-02T00:00:00Z"}]
+
+
+def test_translation_is_owned_and_cached(client, fake_db, fake_ai, signed_in_as, monkeypatch):
+    from ai_backend import analysis as analysis_module
+
+    fake_db.add_contract(USER_A, CONTRACT)
+    set_status(fake_db, "completed")
+    fake_db.tables["analysis_results"] = [{
+        "contract_id": CONTRACT,
+        "analysis": {"summary": "An agreement", "document_language": "en", "parties": [{"text": "Cedar", "pages": [1]}]},
+        "created_at": "2026-10-01T00:00:00+00:00",
+    }]
+    calls = []
+
+    def fake_translate(source, language):
+        calls.append(language)
+        return {**source, "summary": "اتفاقية", "display_language": "ar"}
+
+    monkeypatch.setattr(analysis_module, "translate_analysis", fake_translate)
+    endpoint = f"/api/contracts/{CONTRACT}/analysis/translate"
+    signed_in_as(USER_B)
+    assert client.post(endpoint, json={"language": "ar"}).status_code == 404
+    signed_in_as(USER_A)
+    assert client.post(endpoint, json={"language": "fr"}).status_code == 422
+    first = client.post(endpoint, json={"language": "ar"})
+    second = client.post(endpoint, json={"language": "ar"})
+    assert first.status_code == second.status_code == 200
+    assert first.json()["analysis"]["summary"] == "اتفاقية"
+    assert calls == ["ar"]
+    assert fake_db.tables["analysis_results"][0]["analysis"]["summary"] == "An agreement"
+    assert fake_db.tables["analysis_results"][0]["analysis"]["translations"]["ar"]["summary"] == "اتفاقية"
+
+
 # ---------- questions ----------
 
 def ask(client, question="ما مدة الإشعار؟"):

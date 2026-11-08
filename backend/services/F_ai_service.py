@@ -36,6 +36,7 @@ CONTRACT_COLUMNS = "id,file_name,status,created_at,updated_at"
 ANALYSIS_LIMIT = 10
 ANALYSIS_WINDOW_SECONDS = 3600
 CHAT_HISTORY_LIMIT = 50
+HISTORY_OVERVIEW_LIMIT = 1000
 MIN_STALE_PROCESSING_AGE = timedelta(hours=1)
 
 
@@ -193,6 +194,43 @@ def get_analysis(user_id: str, contract_id: str) -> dict | None:
     return response.data[0] if response.data else None
 
 
+def get_translated_analysis(user_id: str, contract_id: str, language: str) -> dict:
+    """Translate an owner's saved analysis once and cache it with the source JSON."""
+    if language not in ("ar", "en"):
+        raise ValueError("Unsupported translation language")
+    contract = _owned_contract(user_id, contract_id)
+    if contract["status"] != "completed":
+        raise ContractNotReady()
+    saved = get_analysis(user_id, contract_id)
+    if not saved or not isinstance(saved.get("analysis"), dict):
+        raise ContractNotReady()
+    source = saved["analysis"]
+    cached = source.get("translations", {}).get(language)
+    if isinstance(cached, dict):
+        return {"analysis": cached, "created_at": saved["created_at"]}
+    if missing_settings():
+        raise AiNotConfigured(", ".join(missing_settings()))
+    try:
+        from ai_backend.analysis import translate_analysis
+        translated = translate_analysis(source, language)
+    except ImportError as error:
+        raise AiNotConfigured("AI Backend packages are not installed") from error
+    except Exception as error:
+        if _is_temporary(error):
+            raise AiUnavailable("Translation service unavailable") from error
+        raise AiFailed("Could not translate the analysis") from error
+    updated = {**source, "translations": {**source.get("translations", {}), language: translated}}
+    client = _data_client()
+    response = _db(lambda: client.table("analysis_results")
+        .update({"analysis": updated})
+        .eq("contract_id", contract_id)
+        .eq("created_at", saved["created_at"])
+        .execute())
+    if not response.data:
+        raise ContractNotReady()
+    return {"analysis": translated, "created_at": saved["created_at"]}
+
+
 def apply_suggested_name(user_id: str, contract_id: str) -> dict:
     """Change only the owner's display name after they explicitly request it.
 
@@ -327,6 +365,24 @@ def ask_contract(user_id: str, contract_id: str, question: str) -> dict:
     return reply
 
 
+def list_conversation_overview(user_id: str) -> list[dict]:
+    """Return the latest inquiry per contract for this user."""
+    client = _data_client()
+    response = _db(lambda: client.table("chat_history")
+        .select("contract_id,question,created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(HISTORY_OVERVIEW_LIMIT)
+        .execute())
+    seen = set()
+    result = []
+    for row in response.data or []:
+        if row["contract_id"] not in seen:
+            seen.add(row["contract_id"])
+            result.append(row)
+    return result
+
+
 def list_chat(user_id: str, contract_id: str) -> list[dict]:
     _owned_contract(user_id, contract_id)
 
@@ -335,11 +391,11 @@ def list_chat(user_id: str, contract_id: str) -> list[dict]:
         .select("question,answer,sources,created_at")
         .eq("contract_id", contract_id)
         .eq("user_id", user_id)
-        .order("created_at", desc=False)
+        .order("created_at", desc=True)
         .limit(CHAT_HISTORY_LIMIT)
         .execute())
 
     return [
         {**row, "sources": _clean_sources(row.get("sources"))}
-        for row in response.data or []
+        for row in reversed(response.data or [])
     ]

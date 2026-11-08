@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from dependencies.F_auth import get_current_user
-from models.F_ai_data import AnalysisOut, AnalysisStarted, ChatEntry, ContractAnswer, ContractQuestion
+from models.F_ai_data import AnalysisOut, AnalysisStarted, ChatEntry, ContractAnswer, ContractQuestion, TranslationRequest
 from models.Y_contract_data import ContractOut
 from services.F_ai_service import (
     ANALYSIS_LIMIT,
@@ -18,7 +18,9 @@ from services.F_ai_service import (
     apply_suggested_name,
     ask_contract,
     get_analysis,
+    get_translated_analysis,
     list_chat,
+    list_conversation_overview,
     run_analysis,
     start_analysis,
 )
@@ -87,6 +89,11 @@ def analyze(contract_id: UUID, background_tasks: BackgroundTasks, user=Depends(g
     return {"status": "processing"}
 
 
+@router.get("/conversations/history")
+def conversation_history(user=Depends(get_current_user)):
+    return _run(list_conversation_overview, str(user.id))
+
+
 @router.get("/{contract_id}/analysis", response_model=AnalysisOut)
 def read_analysis(contract_id: UUID, user=Depends(get_current_user)):
     result = _run(get_analysis, str(user.id), str(contract_id))
@@ -95,6 +102,12 @@ def read_analysis(contract_id: UUID, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     return result
+
+
+@router.post("/{contract_id}/analysis/translate", response_model=AnalysisOut)
+def translate_saved_analysis(contract_id: UUID, data: TranslationRequest, user=Depends(get_current_user)):
+    _limit(f"translation:{user.id}", ANALYSIS_LIMIT, ANALYSIS_WINDOW_SECONDS)
+    return _run(get_translated_analysis, str(user.id), str(contract_id), data.language)
 
 
 @router.post("/{contract_id}/apply-suggested-name", response_model=ContractOut)

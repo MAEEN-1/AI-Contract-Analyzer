@@ -14,6 +14,8 @@ This package extracts contract text, analyzes it, indexes page-linked chunks, an
 
 The General Backend owns authentication, uploads, contract status, `analysis_results`, and `chat_history`. The AI package owns `document_chunks` and embeddings. The suggested filename is returned in the analysis; production processing does not rename the PDF in Storage.
 
+New analyses write descriptive fields in the document's dominant language and return `document_language` (`en` or `ar`). The General Backend exposes `POST /api/contracts/{id}/analysis/translate` with `{"language":"ar"}` or `{"language":"en"}` for an optional translation. It saves the translated prose with the original analysis while keeping party names, amounts, citations, and the suggested filename unchanged. Existing saved analyses retain their original wording until they are analyzed again.
+
 ## Local setup
 
 From the repository root, install `ai_backend/requirements.txt`, copy `ai_backend/.env.example` to `ai_backend/.env`, and fill in the server-side credentials. Never commit `.env`. Set `EMBEDDING_MODEL` to a model producing 1536 dimensions, such as `text-embedding-3-small`, and set `CHAT_MODEL` to the chosen chat model.

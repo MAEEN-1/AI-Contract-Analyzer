@@ -1,5 +1,6 @@
 import threading
 import time
+from functools import lru_cache
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from services.F_supabase_client import get_supabase_client
@@ -128,15 +129,15 @@ def resend_signup_code(email: str):
         client.auth.close()
 
 
+@lru_cache(maxsize=1)
+def _verification_client():
+    # Only get_user(explicit_token) may use this client. It builds per-request
+    # authorization headers without changing a session. Login/signup clients
+    # remain separate because those operations mutate authentication state.
+    return get_supabase_client()
+
+
 def get_user_from_token(token: str):
-    client = get_supabase_client()
-
-    try:
-        response = client.auth.get_user(token)
-
-        if response is None:
-            return None
-
-        return response.user
-    finally:
-        client.auth.close()
+    # Reuse HTTP connections, but still verify every request with Supabase.
+    response = _verification_client().auth.get_user(token)
+    return response.user if response is not None else None

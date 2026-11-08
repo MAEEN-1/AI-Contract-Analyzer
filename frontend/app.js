@@ -39,6 +39,9 @@
   var isLocalSite = ["localhost", "127.0.0.1", ""].indexOf(location.hostname) !== -1;
   var API_URL = (window.MAEEN_API_URL || (isLocalSite ? LOCAL_API_URL : location.origin)).replace(/\/$/, "");
   var SESSION_KEY = "maeen-session";
+  var CONTRACT_CACHE_KEY = "maeen-contract-cache-v1";
+  var CONTRACT_REVISION_KEY = "maeen-contract-revision";
+  var CONTRACT_CACHE_MS = 15000;
   // The assistant conversation lasts for this browser tab only.
   var ASSISTANT_KEY = "maeen-assistant";
   // The email waiting for its activation code lasts for this browser tab only.
@@ -73,6 +76,7 @@
   }
   function clearSession() {
     try { localStorage.removeItem(SESSION_KEY); } catch (error) { /* Nothing was saved. */ }
+    try { sessionStorage.removeItem(CONTRACT_CACHE_KEY); } catch (error) { /* Nothing was saved. */ }
     try { sessionStorage.removeItem(ASSISTANT_KEY); } catch (error) { /* Nothing was saved. */ }
   }
   function rememberPendingEmail(email) {
@@ -427,8 +431,13 @@
       "<button class='icon-button' type='button' data-assistant-new aria-label='", t("New conversation", "محادثة جديدة"), "' title='", t("New conversation", "محادثة جديدة"), "'>", icon("refresh"), "</button>",
       "<button class='icon-button' type='button' data-assistant-close aria-label='", t("Close assistant", "إغلاق المساعد"), "' title='", t("Close", "إغلاق"), "'>", icon("close"), "</button>",
       "</div></header>",
-      "<div class='assistant-scope'><label for='assistant-contract'>", t("Ask about", "السؤال عن"), "</label>",
-      "<select class='input' id='assistant-contract'><option value=''>", t("General questions", "أسئلة عامة"), "</option></select></div>",
+      "<div class='assistant-scope'><span id='assistant-scope-label'>", t("Ask about", "السؤال عن"), "</span>",
+      "<select id='assistant-contract' hidden aria-hidden='true' tabindex='-1'><option value=''>", t("General questions", "أسئلة عامة"), "</option></select>",
+      "<button class='input assistant-contract-toggle' id='assistant-contract-toggle' type='button' aria-haspopup='dialog' aria-expanded='false' aria-controls='assistant-contract-menu' aria-labelledby='assistant-scope-label assistant-contract-value'><bdi id='assistant-contract-value'>", t("General questions", "أسئلة عامة"), "</bdi><span class='sort-chevron' aria-hidden='true'></span></button>",
+      "<div class='assistant-contract-menu' id='assistant-contract-menu' role='dialog' aria-label='", t("Choose a contract", "اختيار عقد"), "' hidden>",
+      "<input class='input' id='assistant-contract-search' type='search' role='combobox' aria-autocomplete='list' aria-expanded='true' aria-controls='assistant-contract-options' aria-label='", t("Search contracts", "البحث عن عقد"), "' placeholder='", t("Search by contract name", "ابحث باسم العقد"), "'>",
+      "<div class='assistant-contract-options' id='assistant-contract-options' role='listbox' aria-label='", t("Contracts", "العقود"), "'></div>",
+      "<p class='assistant-contract-status' id='assistant-contract-status' role='status' hidden></p></div></div>",
       "<div class='assistant-log' id='assistant-log' role='log' aria-live='polite' aria-label='", t("Conversation", "المحادثة"), "'></div>",
       "<form class='assistant-compose' id='assistant-form'>",
       "<label class='sr-only' for='assistant-input'>", t("Type your question", "اكتب سؤالك"), "</label>",
@@ -576,7 +585,11 @@
       "<button class='tab' type='button' data-library-tab='favorites' aria-pressed='false'>", t("Favorites", "المفضلة"), "</button>",
       "</div></div>",
       "<div class='toolbar'><label class='sr-only' for='contract-search'>", t("Search by contract name", "البحث باسم العقد"), "</label><input class='input search-input' id='contract-search' type='search' placeholder='", t("Search by contract name", "البحث باسم العقد"), "'>",
-      "<label class='sr-only' for='contract-sort'>", t("Sort contracts", "ترتيب العقود"), "</label><select class='input sort-select' id='contract-sort'><option value='newest'>", t("Newest first", "الأحدث أولًا"), "</option><option value='oldest'>", t("Oldest first", "الأقدم أولًا"), "</option></select></div>",
+      "<div class='sort-select'><span class='sr-only' id='contract-sort-label'>", t("Sort contracts", "ترتيب العقود"), "</span>",
+      "<button class='input sort-trigger' id='contract-sort' type='button' value='newest' aria-haspopup='menu' aria-expanded='false' aria-controls='contract-sort-menu' aria-labelledby='contract-sort-label contract-sort-value'><span id='contract-sort-value'>", t("Newest first", "الأحدث أولًا"), "</span><span class='sort-chevron' aria-hidden='true'></span></button>",
+      "<div class='sort-menu' id='contract-sort-menu' role='menu' aria-labelledby='contract-sort-label' hidden>",
+      "<button class='sort-option' type='button' role='menuitemradio' aria-checked='true' tabindex='-1' data-sort='newest'>", t("Newest first", "الأحدث أولًا"), "</button>",
+      "<button class='sort-option' type='button' role='menuitemradio' aria-checked='false' tabindex='-1' data-sort='oldest'>", t("Oldest first", "الأقدم أولًا"), "</button></div></div></div>",
       "<div id='contract-list'>", listState(t("Loading contracts…", "جارٍ تحميل العقود…")), "</div>",
       "</section>",
       "<div class='legend'><span>", t("Contract statuses:", "حالات العقد:"), "</span><span class='status status-uploaded'>", t("Uploaded", "تم الرفع"), "</span><span class='status status-processing'>", t("Analyzing", "قيد التحليل"), "</span><span class='status status-complete'>", t("Complete", "مكتمل"), "</span><span class='status status-failed'>", t("Analysis failed", "تعذّر التحليل"), "</span></div>"
@@ -619,7 +632,7 @@
       "<div class='analysis-state' id='analysis-state' role='status' hidden></div>",
       "<section class='panel'><div class='panel-tabs'><div class='tabs' role='tablist' aria-label='", t("Contract sections", "أقسام العقد"), "'>",
       tab("overview", t("Overview", "نظرة عامة"), true), tab("analysis", t("Analysis results", "نتائج التحليل"), false), tab("ask", t("Inquiries", "الاستفسارات"), false),
-      "</div></div>",
+      "</div><div class='analysis-language' id='analysis-language' hidden><span id='analysis-language-note'></span><button class='button button-secondary' type='button' id='analysis-language-toggle'></button></div></div>",
       "<div class='tab-panel' role='tabpanel' id='panel-overview' aria-labelledby='tab-overview' data-tab-panel='overview'><div id='overview-body'><div class='detail-grid'>",
       "<div class='detail-box'><h3>", t("Contract summary", "ملخص العقد"), "</h3><p>", t("The summary will appear once the contract analysis is complete.", "يظهر الملخص بعد اكتمال تحليل العقد."), "</p></div>",
       "<div class='detail-box'><h3>", t("Key information", "المعلومات الأساسية"), "</h3><p>", t("Key information will appear once the contract analysis is complete.", "تظهر المعلومات الأساسية بعد اكتمال تحليل العقد."), "</p></div>",
@@ -635,7 +648,7 @@
       "<p class='disclaimer'>", DISCLAIMER, "</p>",
       "</div>",
       "</section>",
-      "<div class='detail-actions' id='detail-actions' hidden><button class='button button-secondary' type='button' id='apply-suggested-name' hidden>", t("Use suggested name", "استخدام الاسم المقترح"), "</button><button class='button button-danger' type='button' id='delete-contract'>", t("Delete contract", "حذف العقد"), "</button></div>"
+      "<div class='detail-actions' id='detail-actions' hidden><button class='button button-secondary' type='button' id='reanalyze-contract' hidden>", t("Re-analyze contract", "إعادة تحليل العقد"), "</button><button class='button button-secondary' type='button' id='apply-suggested-name' hidden>", t("Use suggested name", "استخدام الاسم المقترح"), "</button><button class='button button-danger' type='button' id='delete-contract'>", t("Delete contract", "حذف العقد"), "</button></div>"
     ].join("");
     return shell("details", t("Contract details", "تفاصيل العقد"), content);
   }
@@ -645,12 +658,13 @@
       "<div class='page-head'><div><h1>", t("Inquiries", "الاستفسارات"), "</h1><p>", t("Please select a contract to begin.", "يرجى اختيار عقد للبدء."), "</p></div></div>",
       "<section class='panel ask' aria-label='", t("Ask about a contract", "الاستفسار عن عقد"), "'>",
       "<aside class='ask-aside'>",
-      "<div><label class='aside-label' for='ask-contract'>", t("Selected contract", "العقد المحدد"), "</label><select class='input' id='ask-contract'><option value=''>", t("Select a contract", "اختيار عقد"), "</option></select><p class='aside-note' id='ask-contract-note'>", t("Loading contracts…", "جارٍ تحميل العقود…"), "</p></div>",
-      "<div class='history'><span class='aside-label'>", t("Inquiry history", "سجل الاستفسارات"), "</span><p class='aside-note' id='ask-history-note'>", t("No previous inquiries.", "لا توجد استفسارات سابقة."), "</p></div>",
+      "<div class='contract-browser'><label class='aside-label' for='ask-contract-search'>", t("Your contracts", "عقودك"), "</label><p class='contract-browser-hint'>", t("Choose a file to start or continue a conversation.", "اختر ملفًا لبدء محادثة أو متابعتها."), "</p><input class='input' id='ask-contract-search' type='search' autocomplete='off' placeholder='", t("Search files or conversations…", "ابحث في الملفات والمحادثات…"), "'><select id='ask-contract' hidden aria-hidden='true' tabindex='-1'><option value=''></option></select>",
+      "<div class='contract-browser-tabs' role='group' aria-label='", t("Browse contracts", "تصفح العقود"), "'><button type='button' data-contract-view='all' aria-pressed='true'>", t("All files", "كل الملفات"), " <span id='contract-count'>0</span></button><button type='button' data-contract-view='recent' aria-pressed='false'>", t("Conversations", "المحادثات"), " <span id='conversation-count'>0</span></button></div>",
+      "<div class='contract-browser-panel' id='contract-all-panel'><div class='contract-choices' id='contract-choices' aria-label='", t("Contracts", "العقود"), "'></div><p class='aside-note' id='ask-contract-note'>", t("Loading contracts…", "جارٍ تحميل العقود…"), "</p></div><div class='contract-browser-panel' id='contract-recent-panel' hidden><p class='aside-note' id='ask-history-note'>", t("Loading conversations…", "جارٍ تحميل المحادثات…"), "</p><div class='conversation-list' id='conversation-list'></div></div></div>",
       "<a class='button button-secondary' href='/upload/'>", t("Upload contract", "رفع عقد"), "</a>",
       "</aside>",
       "<div class='ask-main'>",
-      "<div class='ask-top'><strong>", t("New inquiry", "استفسار جديد"), "</strong><span id='ask-selected'>", t("Please select a contract", "يرجى اختيار عقد"), "</span></div>",
+      "<div class='ask-top'><strong>", t("Conversation", "المحادثة"), "</strong><span id='ask-selected'>", t("Please select a contract", "يرجى اختيار عقد"), "</span></div>",
       "<div class='ask-body' role='log' aria-label='", t("Inquiry conversation", "محادثة الاستفسار"), "'><div class='ask-welcome'><span class='empty-icon'>", icon("ask"), "</span>",
       "<h3>", t("Ask about a contract", "الاستفسار عن عقد"), "</h3><p>", t("Select an analyzed contract, then type your inquiry. Each answer shows the page, clause, and text it is based on.", "اختر عقدًا مكتمل التحليل، ثم اكتب استفسارك. تظهر كل إجابة مع رقم الصفحة والبند والنص الذي تستند إليه."), "</p>",
       "<div class='suggestions' role='group' aria-label='", t("Example inquiries", "أمثلة على الاستفسارات"), "'><button class='suggestion' type='button'>", t("What are my obligations under the contract?", "ما التزاماتي في العقد؟"), "</button><button class='suggestion' type='button'>", t("What are the termination conditions?", "ما شروط إنهاء العقد؟"), "</button><button class='suggestion' type='button'>", t("What are the renewal terms?", "ما شروط التجديد؟"), "</button></div>",
@@ -787,7 +801,10 @@
           reject(expired);
           return;
         }
-        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (method !== "GET" && /^\/api\/contracts(?:\/|$)/.test(apiPath)) invalidateContractCache();
+          resolve(data);
+        }
         else fail(xhr.status, data && data.detail);
       });
       xhr.addEventListener("error", function () { fail(0); });
@@ -1138,11 +1155,58 @@
 
   // The user's contracts, newest first, once loaded from the backend.
   var myContracts = null;
+  var contractsRequest = null;
+  function contractRevision() {
+    try { return localStorage.getItem(CONTRACT_REVISION_KEY) || ""; } catch (error) { return ""; }
+  }
+  function contractCacheOwner() {
+    var active = readSession();
+    if (!session || !active || active.token !== session.token) return null;
+    var userId = sessionUserId();
+    return userId === "user" ? null : userId + ":" + session.expiresAt;
+  }
+  function invalidateContractCache() {
+    try { sessionStorage.removeItem(CONTRACT_CACHE_KEY); } catch (error) { /* Storage may be unavailable. */ }
+    // Other tabs reject their old cached lists on their next read as well.
+    try { localStorage.setItem(CONTRACT_REVISION_KEY, Date.now() + ":" + Math.random()); } catch (error) { /* The short TTL still applies. */ }
+  }
+  function readContractCache() {
+    try {
+      var cached = JSON.parse(sessionStorage.getItem(CONTRACT_CACHE_KEY) || "null");
+      var owner = contractCacheOwner();
+      if (owner && cached && cached.owner === owner && cached.revision === contractRevision() &&
+          cached.savedAt <= Date.now() && Date.now() - cached.savedAt < CONTRACT_CACHE_MS && Array.isArray(cached.list)) return cached.list;
+    } catch (error) { /* A missing or invalid cache falls back to the API. */ }
+    return null;
+  }
+  function saveContractCache(list, owner, revision) {
+    // Processing statuses can change at any moment; fetch these lists live.
+    if (!owner || owner !== contractCacheOwner() || revision !== contractRevision() ||
+        list.some(function (contract) { return contract.status === "processing" || contract.status === "uploaded"; })) return;
+    try { sessionStorage.setItem(CONTRACT_CACHE_KEY, JSON.stringify({ owner: owner, revision: revision, savedAt: Date.now(), list: list })); } catch (error) { /* Cache is optional. */ }
+  }
   function loadContracts() {
-    return request("GET", "/api/contracts").then(function (list) {
+    var cached = readContractCache();
+    if (cached !== null) {
+      myContracts = cached;
+      return Promise.resolve(myContracts);
+    }
+    if (contractsRequest) return contractsRequest;
+    var owner = contractCacheOwner();
+    var revision = contractRevision();
+    contractsRequest = request("GET", "/api/contracts").then(function (list) {
       myContracts = list || [];
+      saveContractCache(myContracts, owner, revision);
       return myContracts;
     });
+    contractsRequest = contractsRequest.then(function (list) {
+      contractsRequest = null;
+      return list;
+    }, function (error) {
+      contractsRequest = null;
+      throw error;
+    });
+    return contractsRequest;
   }
 
   // A star in any contract list adds or removes the contract from favorites.
@@ -1190,7 +1254,58 @@
   }
   if (contractList) {
     contractSearch.addEventListener("input", renderContractList);
-    contractSort.addEventListener("change", renderContractList);
+    var sortMenu = document.getElementById("contract-sort-menu");
+    var sortOptions = Array.from(sortMenu.querySelectorAll("[data-sort]"));
+    var sortControl = contractSort.parentElement;
+    function closeSortMenu(returnFocus) {
+      sortMenu.hidden = true;
+      contractSort.setAttribute("aria-expanded", "false");
+      if (returnFocus) contractSort.focus();
+    }
+    function openSortMenu(index) {
+      sortMenu.hidden = false;
+      contractSort.setAttribute("aria-expanded", "true");
+      sortOptions[index].focus();
+    }
+    contractSort.addEventListener("click", function () {
+      if (!sortMenu.hidden) return closeSortMenu(false);
+      openSortMenu(sortOptions.findIndex(function (option) { return option.dataset.sort === contractSort.value; }));
+    });
+    contractSort.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        openSortMenu(event.key === "ArrowDown" ? 0 : sortOptions.length - 1);
+      }
+    });
+    sortOptions.forEach(function (option) {
+      option.addEventListener("click", function () {
+        contractSort.value = option.dataset.sort;
+        document.getElementById("contract-sort-value").textContent = option.textContent;
+        sortOptions.forEach(function (item) { item.setAttribute("aria-checked", String(item === option)); });
+        closeSortMenu(true);
+        renderContractList();
+      });
+    });
+    sortMenu.addEventListener("keydown", function (event) {
+      var index = sortOptions.indexOf(document.activeElement);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSortMenu(true);
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].indexOf(event.key) !== -1) {
+        event.preventDefault();
+        if (event.key === "Home") index = 0;
+        else if (event.key === "End") index = sortOptions.length - 1;
+        else index = (index + (event.key === "ArrowDown" ? 1 : -1) + sortOptions.length) % sortOptions.length;
+        sortOptions[index].focus();
+      }
+    });
+    document.addEventListener("pointerdown", function (event) {
+      if (!sortControl.contains(event.target)) closeSortMenu(false);
+    });
+    sortControl.addEventListener("focusout", function (event) {
+      if (!sortControl.contains(event.relatedTarget)) closeSortMenu(false);
+    });
     if (takeQueryFlag("deleted")) showToast(t("The contract has been deleted.", "تم حذف العقد بنجاح."));
     loadContracts().then(renderContractList).catch(function (error) {
       if (!error.redirected) contractList.innerHTML = listState(errorMessage(error), true);
@@ -1347,6 +1462,7 @@
     var detailStatus = document.getElementById("detail-status");
     var detailError = document.getElementById("detail-error");
     var deleteButton = document.getElementById("delete-contract");
+    var reanalyzeButton = document.getElementById("reanalyze-contract");
     var renameButton = document.getElementById("apply-suggested-name");
     var suggestedNameNote = document.getElementById("suggested-filename");
     var analysisState = document.getElementById("analysis-state");
@@ -1358,6 +1474,11 @@
     var analysisShown = false;
     var detailFileName = "";
     var suggestedFilename = "";
+    var originalAnalysis = null;
+    var displayedAnalysis = null;
+    var languageControls = document.getElementById("analysis-language");
+    var languageToggle = document.getElementById("analysis-language-toggle");
+    var languageNote = document.getElementById("analysis-language-note");
     var pollTimer = null;
     var pollSince = 0;
 
@@ -1373,6 +1494,7 @@
 
     function showStatus(status) {
       currentStatus = status;
+      reanalyzeButton.hidden = status !== "completed";
       detailStatus.innerHTML = statusBadge(status);
       document.getElementById("detail-state").textContent = statusInfo(status).label;
       analysisState.textContent = "";
@@ -1406,6 +1528,16 @@
     function startAnalysis(button) {
       setBusy(button, true, t("Starting…", "جارٍ البدء…"));
       request("POST", contractUrl + "/analyze").then(function () {
+        analysisShown = false;
+        originalAnalysis = null;
+        displayedAnalysis = null;
+        languageControls.hidden = true;
+        suggestedFilename = "";
+        updateSuggestedName();
+        document.getElementById("overview-body").textContent = "";
+        document.getElementById("analysis-body").textContent = "";
+        pollSince = 0;
+        setBusy(button, false);
         showStatus("processing");
         waitForAnalysis();
       }).catch(function (error) {
@@ -1431,8 +1563,10 @@
       var term = document.createElement("dt");
       term.textContent = label;
       var detail = document.createElement("dd");
-      detail.setAttribute("dir", "auto");
-      detail.textContent = value;
+      var valueText = document.createElement("bdi");
+      valueText.setAttribute("dir", "auto");
+      valueText.textContent = value;
+      detail.appendChild(valueText);
       var ref = pageRef(pages);
       if (ref) detail.appendChild(ref);
       row.appendChild(term);
@@ -1471,8 +1605,44 @@
     function joined(values) {
       return values.filter(function (value) { return typeof value === "string" && value.trim(); }).join(t(", ", "، "));
     }
+    function analysisLang(analysis) {
+      if (analysis.display_language === "ar" || analysis.display_language === "en") return analysis.display_language;
+      if (analysis.document_language === "ar" || analysis.document_language === "en") return analysis.document_language;
+      return /[\u0600-\u06ff]/.test(analysis.summary || "") ? "ar" : "en";
+    }
+    function refreshLanguageControls() {
+      if (!originalAnalysis) return;
+      var source = analysisLang(originalAnalysis);
+      var translated = displayedAnalysis !== originalAnalysis;
+      languageControls.hidden = false;
+      languageNote.textContent = translated
+        ? t("Machine translated · source remains available", "ترجمة آلية · النص الأصلي متاح")
+        : t(source === "ar" ? "Original · Arabic" : "Original · English", source === "ar" ? "الأصل · العربية" : "الأصل · الإنجليزية");
+      languageToggle.textContent = translated
+        ? t("Show original", "عرض الأصل")
+        : source === "ar" ? t("Translate to English", "ترجمة إلى الإنجليزية") : t("Translate to Arabic", "ترجمة إلى العربية");
+    }
+    languageToggle.addEventListener("click", function () {
+      if (!originalAnalysis) return;
+      if (displayedAnalysis !== originalAnalysis) {
+        displayedAnalysis = originalAnalysis;
+        renderAnalysis(originalAnalysis);
+        refreshLanguageControls();
+        return;
+      }
+      var target = analysisLang(originalAnalysis) === "ar" ? "en" : "ar";
+      setBusy(languageToggle, true, t("Translating…", "جارٍ الترجمة…"));
+      request("POST", contractUrl + "/analysis/translate", { json: { language: target }, timeout: 60000 }).then(function (data) {
+        displayedAnalysis = data.analysis;
+        renderAnalysis(displayedAnalysis);
+        refreshLanguageControls();
+      }).catch(function (error) {
+        if (!error.redirected) showToast(errorMessage(error));
+      }).finally(function () { setBusy(languageToggle, false); refreshLanguageControls(); });
+    });
     function renderAnalysis(analysis) {
       analysisShown = true;
+      var language = analysisLang(analysis);
       var payment = analysis.payment_terms || {};
       var termination = analysis.termination || {};
       var renewal = analysis.renewal || {};
@@ -1485,7 +1655,7 @@
       summaryTitle.textContent = analysis.is_contract === false ? t("Document summary", "ملخص المستند") : t("Contract summary", "ملخص العقد");
       var summaryText = document.createElement("div");
       summaryText.className = "analysis-text";
-      summaryText.setAttribute("dir", "auto");
+      summaryText.setAttribute("dir", language === "ar" ? "rtl" : "ltr");
       summaryText.appendChild(formatReply(analysis.summary || "—"));
       summaryBox.appendChild(summaryTitle);
       summaryBox.appendChild(summaryText);
@@ -1553,7 +1723,10 @@
         var analysis = data.analysis || {};
         suggestedFilename = analysis.suggested_filename || "";
         updateSuggestedName();
+        originalAnalysis = analysis;
+        displayedAnalysis = analysis;
         renderAnalysis(analysis);
+        refreshLanguageControls();
       }).catch(function (error) {
         if (!error.redirected && error.status !== 404) showToast(errorMessage(error));
       });
@@ -1563,6 +1736,10 @@
     }
 
     function showContract(contract) {
+      // Detail polling sees status changes before a cached library view does.
+      var cachedContracts = readContractCache();
+      var cachedContract = cachedContracts && cachedContracts.find(function (item) { return item.id === contract.id; });
+      if (cachedContract && (cachedContract.status !== contract.status || cachedContract.updated_at !== contract.updated_at || cachedContract.file_name !== contract.file_name)) invalidateContractCache();
       rememberRecent(contract.id);
       // <bdi> keeps an Arabic name inside an English page (or the reverse) in the right order.
       detailFileName = contract.file_name;
@@ -1616,6 +1793,7 @@
         setBusy(renameButton, false);
       });
     });
+    reanalyzeButton.addEventListener("click", function () { startAnalysis(reanalyzeButton); });
     deleteButton.addEventListener("click", async function () {
       if (!window.confirm(t("Delete this contract? The file and its analysis results will be permanently deleted.", "هل تريد حذف هذا العقد؟ سيُحذف الملف ونتائج تحليله نهائيًا."))) return;
       setBusy(deleteButton, true, t("Deleting…", "جارٍ الحذف…"));
@@ -1645,7 +1823,74 @@
     var askForm = document.getElementById("ask-form");
     var askInput = document.getElementById("contract-question");
     var askHistoryNote = document.getElementById("ask-history-note");
+    var contractSearch = document.getElementById("ask-contract-search");
+    var contractChoices = document.getElementById("contract-choices");
+    var conversationList = document.getElementById("conversation-list");
+    var readyContracts = [];
+    var recentConversations = [];
     var wantedContract = new URLSearchParams(location.search).get("id");
+
+    function chooseContract(id) {
+      if (askForm.querySelector("[type='submit']").disabled) {
+        showToast(t("Wait for the current answer before switching contracts.", "انتظر الإجابة الحالية قبل تغيير العقد."));
+        return;
+      }
+      askContract.value = id;
+      selectAskContract();
+      renderContractChoices();
+    }
+    function contractButton(contract, subtitle) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "contract-choice";
+      button.title = contract.file_name;
+      button.setAttribute("aria-pressed", String(askContract.value === contract.id));
+      var fileIcon = document.createElement("span");
+      fileIcon.className = "contract-choice-icon";
+      fileIcon.innerHTML = icon(subtitle ? "ask" : "contracts");
+      button.appendChild(fileIcon);
+      var copy = document.createElement("span");
+      copy.className = "contract-choice-copy";
+      var name = document.createElement("span");
+      name.className = "contract-choice-name";
+      name.setAttribute("dir", "auto");
+      name.textContent = contract.file_name;
+      copy.appendChild(name);
+      var detail = document.createElement("small");
+      detail.setAttribute("dir", "auto");
+      detail.textContent = subtitle || formatDate(contract.created_at, true);
+      copy.appendChild(detail);
+      button.appendChild(copy);
+      button.addEventListener("click", function () { chooseContract(contract.id); });
+      return button;
+    }
+    function renderContractChoices() {
+      contractChoices.textContent = "";
+      var query = contractSearch.value.trim().toLowerCase();
+      var matches = readyContracts.filter(function (contract) { return contract.file_name.toLowerCase().includes(query); });
+      matches.forEach(function (contract) { contractChoices.appendChild(contractButton(contract)); });
+      askNote.hidden = matches.length > 0;
+      askNote.textContent = readyContracts.length ? t("No matching contracts.", "لا توجد عقود مطابقة.") : t("No analyzed contracts available.", "لا توجد عقود مكتملة التحليل.");
+      conversationList.textContent = "";
+      recentConversations.forEach(function (entry) {
+        var contract = readyContracts.find(function (item) { return item.id === entry.contract_id; });
+        if (contract && (!query || (contract.file_name + " " + entry.question).toLowerCase().includes(query))) conversationList.appendChild(contractButton(contract, entry.question));
+      });
+      document.getElementById("contract-count").textContent = readyContracts.length;
+      document.getElementById("conversation-count").textContent = recentConversations.filter(function (entry) { return readyContracts.some(function (contract) { return contract.id === entry.contract_id; }); }).length;
+      askHistoryNote.hidden = conversationList.children.length > 0;
+      askHistoryNote.textContent = query ? t("No matching conversations.", "لا توجد محادثات مطابقة.") : t("No previous inquiries.", "لا توجد استفسارات سابقة.");
+    }
+    function loadConversationOverview() {
+      return request("GET", "/api/contracts/conversations/history").then(function (entries) {
+        recentConversations = entries || [];
+        renderContractChoices();
+        askHistoryNote.hidden = conversationList.children.length > 0;
+        askHistoryNote.textContent = t("No previous inquiries.", "لا توجد استفسارات سابقة.");
+      }).catch(function (error) {
+        if (!error.redirected) { askHistoryNote.hidden = false; askHistoryNote.textContent = t("Could not load conversations.", "تعذّر تحميل المحادثات."); }
+      });
+    }
 
     // Shows the welcome until the selected contract has a conversation.
     function showThread(hasMessages) {
@@ -1658,7 +1903,6 @@
       askThread.textContent = "";
       askThread.hidden = true;
       showThread(false);
-      askHistoryNote.textContent = t("No previous inquiries.", "لا توجد استفسارات سابقة.");
       if (!id) return;
       request("GET", "/api/contracts/" + encodeURIComponent(id) + "/chat").then(function (entries) {
         if (askContract.value !== id) return;
@@ -1666,7 +1910,6 @@
         renderChatHistory(askThread, entries);
         showThread(entries.length > 0);
         if (entries.length) {
-          askHistoryNote.textContent = t(entries.length + " previous inquiries", "عدد الاستفسارات السابقة: " + entries.length);
           askThread.lastChild.scrollIntoView({ block: "nearest" });
         }
       }).catch(function (error) {
@@ -1677,6 +1920,7 @@
     loadContracts().then(function (list) {
       // Only contracts whose analysis is complete can be asked about.
       var ready = list.filter(function (contract) { return contract.status === "completed"; });
+      readyContracts = ready;
       ready.forEach(function (contract) {
         var option = document.createElement("option");
         option.value = contract.id;
@@ -1685,27 +1929,38 @@
       });
       askNote.textContent = t("No analyzed contracts available.", "لا توجد عقود مكتملة التحليل.");
       askNote.hidden = ready.length > 0;
+      renderContractChoices();
+      loadConversationOverview();
       // ?id= opens the page on that contract, for example from the contract page.
       if (wantedContract && ready.some(function (contract) { return contract.id === wantedContract; })) {
         askContract.value = wantedContract;
-        selectAskContract();
+        chooseContract(wantedContract);
       }
     }).catch(function (error) {
       if (!error.redirected) askNote.textContent = errorMessage(error);
     });
     askContract.addEventListener("change", selectAskContract);
+    contractSearch.addEventListener("input", renderContractChoices);
+    document.querySelectorAll("[data-contract-view]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var recent = button.dataset.contractView === "recent";
+        document.getElementById("contract-all-panel").hidden = recent;
+        document.getElementById("contract-recent-panel").hidden = !recent;
+        document.querySelectorAll("[data-contract-view]").forEach(function (item) { item.setAttribute("aria-pressed", String(item === button)); });
+      });
+    });
 
     askForm.addEventListener("submit", function (event) {
       event.preventDefault();
       if (!askContract.value) {
-        askContract.focus();
+        contractSearch.focus();
         showToast(t("Please select a contract first.", "يرجى اختيار عقد أولًا."));
         return;
       }
       var question = readQuestion(askInput);
       if (!question) return;
       showThread(true);
-      sendContractQuestion(askContract.value, question, askThread, askForm.querySelector("[type='submit']"), askInput);
+      sendContractQuestion(askContract.value, question, askThread, askForm.querySelector("[type='submit']"), askInput).then(loadConversationOverview);
     });
     askInput.addEventListener("keydown", function (event) {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
@@ -1736,6 +1991,14 @@
     var assistantInput = document.getElementById("assistant-input");
     var assistantSend = assistantForm.querySelector(".assistant-send");
     var assistantContract = document.getElementById("assistant-contract");
+    var contractToggle = document.getElementById("assistant-contract-toggle");
+    var contractMenu = document.getElementById("assistant-contract-menu");
+    var contractPickerSearch = document.getElementById("assistant-contract-search");
+    var contractOptions = document.getElementById("assistant-contract-options");
+    var contractPickerStatus = document.getElementById("assistant-contract-status");
+    var pickerActiveIndex = -1;
+    var contractsLoading = false;
+    var contractLoadError = false;
     var wideScreen = window.matchMedia("(min-width: 801px)");
     // The backend reads the latest 12 messages; the tab keeps up to 40.
     var ASSISTANT_SENT = 12;
@@ -1845,30 +2108,36 @@
     function loadContractChoices() {
       if (contractsLoaded) return;
       contractsLoaded = true;
+      contractsLoading = true;
+      contractLoadError = false;
+      renderContractPicker();
       loadContracts().then(function (list) {
+        contractsLoading = false;
         var ready = list.filter(function (contract) { return contract.status === "completed"; });
+        assistantContract.length = 1;
         ready.forEach(function (contract) {
           var option = document.createElement("option");
           option.value = contract.id;
           option.textContent = contract.file_name;
           assistantContract.appendChild(option);
         });
-        if (!ready.length) {
-          var none = document.createElement("option");
-          none.disabled = true;
-          none.textContent = t("No analyzed contracts yet", "لا توجد عقود مكتملة التحليل بعد");
-          assistantContract.appendChild(none);
-        }
         var stillThere = ready.some(function (contract) { return contract.id === assistantState.scope; });
         assistantContract.value = stillThere ? assistantState.scope : "";
         setScope(assistantContract.value);
+        renderContractPicker();
       }).catch(function (error) {
         contractsLoaded = false;
+        contractsLoading = false;
+        contractLoadError = true;
+        renderContractPicker();
         if (!error.redirected) showToast(errorMessage(error));
       });
     }
     function setScope(contractId) {
       assistantState.scope = contractId;
+      var selected = assistantContract.options[assistantContract.selectedIndex];
+      document.getElementById("assistant-contract-value").textContent = selected ? selected.textContent : t("General questions", "أسئلة عامة");
+      contractToggle.title = selected ? selected.textContent : "";
       saveAssistant();
       assistantInput.placeholder = contractId ? t("Ask about this contract", "اسأل عن هذا العقد") : t("Type your question", "اكتب سؤالك");
     }
@@ -1877,6 +2146,8 @@
       assistantBusy = busy;
       assistantSend.disabled = busy;
       assistantContract.disabled = busy;
+      contractToggle.disabled = busy;
+      if (busy) closeContractPicker(false);
       assistantForm.setAttribute("aria-busy", busy ? "true" : "false");
     }
     function finishReply(message) {
@@ -1944,6 +2215,7 @@
       if (focusInput) assistantInput.focus();
     }
     function closeAssistant(returnFocus) {
+      closeContractPicker(false);
       assistantPanel.hidden = true;
       assistantFab.setAttribute("aria-expanded", "false");
       assistantFab.setAttribute("aria-label", t("Open MAEEN Assistant", "فتح مساعد معين"));
@@ -1965,9 +2237,85 @@
       renderConversation();
       assistantInput.focus();
     });
-    assistantContract.addEventListener("change", function () {
+    function closeContractPicker(returnFocus) {
+      contractMenu.hidden = true;
+      contractToggle.setAttribute("aria-expanded", "false");
+      contractPickerSearch.removeAttribute("aria-activedescendant");
+      if (returnFocus) contractToggle.focus();
+    }
+    function chooseAssistantContract(value) {
+      if (assistantBusy) return;
+      assistantContract.value = value;
       setScope(assistantContract.value);
+      closeContractPicker(false);
       assistantInput.focus();
+    }
+    function renderContractPicker() {
+      var query = contractPickerSearch.value.trim().toLocaleLowerCase();
+      contractOptions.textContent = "";
+      pickerActiveIndex = -1;
+      contractPickerSearch.removeAttribute("aria-activedescendant");
+      Array.from(assistantContract.options).filter(function (option) {
+        return !option.disabled && (!option.value || option.textContent.toLocaleLowerCase().includes(query));
+      }).forEach(function (option, index) {
+        var row = document.createElement("button");
+        row.type = "button";
+        row.className = "assistant-contract-option";
+        row.id = "assistant-contract-option-" + index;
+        row.tabIndex = -1;
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-selected", String(option.value === assistantContract.value));
+        row.title = option.textContent;
+        var label = document.createElement("bdi");
+        label.textContent = option.textContent;
+        row.appendChild(label);
+        row.addEventListener("click", function () { chooseAssistantContract(option.value); });
+        contractOptions.appendChild(row);
+      });
+      var message = contractsLoading ? t("Loading contracts…", "جارٍ تحميل العقود…") : contractLoadError
+        ? t("Could not load contracts. Reopen this list to retry.", "تعذّر تحميل العقود. أعد فتح القائمة للمحاولة.")
+        : contractOptions.children.length === 1 ? (query ? t("No matching contracts", "لا توجد عقود مطابقة") : t("No analyzed contracts yet", "لا توجد عقود مكتملة التحليل بعد")) : "";
+      contractPickerStatus.textContent = message;
+      contractPickerStatus.hidden = !message;
+    }
+    contractToggle.addEventListener("click", function () {
+      if (!contractMenu.hidden) return closeContractPicker(false);
+      contractPickerSearch.value = "";
+      contractMenu.hidden = false;
+      contractToggle.setAttribute("aria-expanded", "true");
+      loadContractChoices();
+      renderContractPicker();
+      contractPickerSearch.focus();
+    });
+    contractToggle.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowDown") { event.preventDefault(); if (contractMenu.hidden) contractToggle.click(); }
+    });
+    contractPickerSearch.addEventListener("input", renderContractPicker);
+    contractMenu.addEventListener("keydown", function (event) {
+      if (event.key === "Tab") {
+        event.preventDefault();
+        closeContractPicker(false);
+        (event.shiftKey ? contractToggle : assistantInput).focus();
+      } else if (event.key === "Escape") {
+        event.preventDefault(); event.stopPropagation(); closeContractPicker(true);
+      } else if (event.target === contractPickerSearch && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        var rows = Array.from(contractOptions.children);
+        pickerActiveIndex = pickerActiveIndex < 0 ? (event.key === "ArrowDown" ? 0 : rows.length - 1)
+          : (pickerActiveIndex + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+        rows.forEach(function (row, index) { row.classList.toggle("keyboard-active", index === pickerActiveIndex); });
+        contractPickerSearch.setAttribute("aria-activedescendant", rows[pickerActiveIndex].id);
+        rows[pickerActiveIndex].scrollIntoView({ block: "nearest" });
+      } else if (event.target === contractPickerSearch && event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        if (pickerActiveIndex >= 0) contractOptions.children[pickerActiveIndex].click();
+      }
+    });
+    document.addEventListener("pointerdown", function (event) {
+      if (!contractMenu.hidden && !contractMenu.contains(event.target) && !contractToggle.contains(event.target)) closeContractPicker(false);
+    });
+    contractMenu.addEventListener("focusout", function (event) {
+      if (!contractMenu.contains(event.relatedTarget) && event.relatedTarget !== contractToggle) closeContractPicker(false);
     });
     assistantPanel.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;

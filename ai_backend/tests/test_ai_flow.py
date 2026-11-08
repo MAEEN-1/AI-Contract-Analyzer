@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from ai_backend.analysis import ContractAnalysis, analyze_contract, safe_filename, split_for_analysis
+from ai_backend.analysis import ContractAnalysis, TranslatedFields, analyze_contract, concise_filename, document_language, safe_filename, split_for_analysis, translate_analysis
 from ai_backend.rag import RagAnswer, answer_question
 from ai_backend.retrieval import cosine_similarity, retrieve_chunks
 from ai_backend.supabase_store import _vector_literal
@@ -61,10 +61,48 @@ def test_analysis_split_preserves_page_number():
     assert all("[Page 4]" in part for part in parts)
 
 
+def test_analysis_uses_document_language():
+    assert document_language([{"text": "Service agreement between two parties"}]) == "en"
+    assert document_language([{"text": "اتفاقية خدمات بين طرفين"}]) == "ar"
+
+
+def test_translation_preserves_facts_and_original_analysis():
+    source = {
+        "summary": "The provider charges USD 500 per month.",
+        "document_language": "en",
+        "is_contract": True,
+        "parties": [{"text": "Cedar Services LLC", "pages": [1]}],
+        "payment_terms": {"amount": "500", "currency": "USD", "frequency": "monthly", "pages": [3]},
+        "obligations": [{"text": "Send a report", "pages": [2]}],
+        "suggested_filename": "cedar_service.pdf",
+    }
+    result = translate_analysis(source, "ar", model=FakeResponder(TranslatedFields(texts=[
+        "يتقاضى المزود 500 دولار أمريكي شهريًا.", "شهريًا", "إرسال تقرير",
+    ])))
+    assert source["summary"] == "The provider charges USD 500 per month."
+    assert result["summary"].startswith("يتقاضى")
+    assert result["payment_terms"]["amount"] == "500"
+    assert result["payment_terms"]["pages"] == [3]
+    assert result["obligations"][0]["pages"] == [2]
+    assert result["parties"] == source["parties"]
+    assert result["suggested_filename"] == "cedar_service.pdf"
+    assert result["display_language"] == "ar"
+
+
+def test_translation_rejects_missing_fields():
+    with pytest.raises(ValueError, match="every field"):
+        translate_analysis({"summary": "A", "obligations": [{"text": "B", "pages": [1]}]}, "ar",
+                           model=FakeResponder(TranslatedFields(texts=["أ"])))
+
+
 def test_filename_rejects_paths():
     assert safe_filename("service_agreement.pdf") == "service_agreement.pdf"
     with pytest.raises(ValueError):
         safe_filename("../secret.pdf")
+
+
+def test_long_suggested_filename_drops_generic_words():
+    assert concise_filename("sample_service_agreement_cedar_green_valley.pdf") == "service_cedar_green_valley.pdf"
 
 
 def test_invalid_suggested_filename_does_not_discard_analysis():

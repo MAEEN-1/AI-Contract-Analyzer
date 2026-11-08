@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 MAX_QUESTION_CHARS = 2000
@@ -45,3 +47,7 @@ class AnalysisOut(BaseModel):
 
 class AnalysisStarted(BaseModel):
     status: str
+
+
+class TranslationRequest(BaseModel):
+    language: Literal["ar", "en"]
